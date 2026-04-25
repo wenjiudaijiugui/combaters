@@ -11,6 +11,22 @@ fn balanced_batch() -> Vec<usize> {
     vec![10, 10, 10, 20, 20, 20]
 }
 
+fn assert_only_missing_positions_are_nan(values: &[f64], missing_positions: &[usize]) {
+    for (idx, value) in values.iter().enumerate() {
+        if missing_positions.contains(&idx) {
+            assert!(
+                value.is_nan(),
+                "expected missing position {idx} to remain NaN"
+            );
+        } else {
+            assert!(
+                value.is_finite(),
+                "expected adjusted value {idx} to be finite"
+            );
+        }
+    }
+}
+
 #[test]
 fn balanced_two_batch_parametric_returns_finite_same_shape_output() {
     let values = balanced_values();
@@ -33,6 +49,52 @@ fn balanced_two_batch_parametric_returns_finite_same_shape_output() {
     assert_eq!(values, original);
     assert!(!result.report.effective_mean_only);
     assert!(result.report.singleton_batches.is_empty());
+}
+
+#[test]
+fn parametric_adjustment_accepts_missing_values_and_preserves_them() {
+    let mut values = balanced_values();
+    values[6] = f64::NAN;
+    values[16] = f64::NAN;
+    let batch = balanced_batch();
+    let input = CombatDenseInput {
+        values: &values,
+        n_samples: 6,
+        n_features: 4,
+        batch: &batch,
+        covariates: None,
+    };
+
+    let result = combat_dense(input, CombatDenseOptions::default()).unwrap();
+
+    assert_eq!(result.n_samples, 6);
+    assert_eq!(result.n_features, 4);
+    assert_only_missing_positions_are_nan(&result.adjusted, &[6, 16]);
+}
+
+#[test]
+fn nonparametric_adjustment_accepts_missing_values_and_preserves_them() {
+    let mut values = balanced_values();
+    values[6] = f64::NAN;
+    values[16] = f64::NAN;
+    let batch = balanced_batch();
+    let input = CombatDenseInput {
+        values: &values,
+        n_samples: 6,
+        n_features: 4,
+        batch: &batch,
+        covariates: None,
+    };
+    let options = CombatDenseOptions {
+        par_prior: false,
+        ..CombatDenseOptions::default()
+    };
+
+    let result = combat_dense(input, options).unwrap();
+
+    assert_eq!(result.n_samples, 6);
+    assert_eq!(result.n_features, 4);
+    assert_only_missing_positions_are_nan(&result.adjusted, &[6, 16]);
 }
 
 #[test]

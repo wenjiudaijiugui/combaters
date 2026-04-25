@@ -1,6 +1,6 @@
 # combaters
 
-`combaters` is a Rust-backed Python package for dense finite ComBat batch-effect correction.
+`combaters` is a Rust-backed Python package for dense ComBat batch-effect correction with optional missing values in the data matrix.
 
 The public matrix contract is row-major `samples x features`: `values[sample * n_features + feature]`.
 
@@ -18,9 +18,9 @@ result = combat(values, batch, mod=mod, par_prior=True, mean_only=False, ref_bat
 adjusted = result["adjusted"]
 ```
 
-`combat` requires `values` to be a C-contiguous row-major `float64` array with shape `(n_samples, n_features)`, `batch` to be a contiguous `int64` vector with length `n_samples`, and optional `mod` to be a C-contiguous row-major `float64` array with shape `(n_samples, n_covariates)`. Negative batch ids are rejected.
+`combat` requires `values` to be a C-contiguous row-major `float64` array with shape `(n_samples, n_features)`, `batch` to be a contiguous `int64` vector with length `n_samples`, and optional `mod` to be a C-contiguous row-major finite `float64` array with shape `(n_samples, n_covariates)`. `values` may contain `np.nan`/NA entries, which are ignored during fitting and preserved as missing values in the adjusted matrix. Infinite values in `values` are rejected. Negative batch ids are rejected.
 
-The current implementation covers dense ComBat with parametric (`par_prior=True`) and non-parametric (`par_prior=False`) empirical Bayes, `mean_only` true or false, optional `ref_batch` by original batch id, and optional numeric `mod`. If any batch has a single sample, ComBat automatically uses effective mean-only adjustment. With `ref_batch`, reference-batch rows are returned unchanged. `prior.plots` and `BPPARAM` are not exposed.
+The current implementation covers dense ComBat with parametric (`par_prior=True`) and non-parametric (`par_prior=False`) empirical Bayes, `mean_only` true or false, optional `ref_batch` by original batch id, optional numeric `mod`, and NA-aware fitting for missing `values`. If any batch has a single sample, ComBat automatically uses effective mean-only adjustment. With `ref_batch`, reference-batch rows are returned unchanged. Features must still have enough observed values to fit the design and, when scale adjustment is enabled, at least two observed values per batch and feature. `prior.plots` and `BPPARAM` are not exposed.
 
 ## Rust Layout
 

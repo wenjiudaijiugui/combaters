@@ -77,7 +77,6 @@ fn posterior_feature(
     delta_hat: &DMatrix<f64>,
 ) -> Result<(f64, f64), CombatError> {
     let n_features = s_data.ncols();
-    let n = sample_indices.len() as f64;
     let mut log_likelihoods = Vec::with_capacity(n_features - 1);
     let mut prior_features = Vec::with_capacity(n_features - 1);
 
@@ -95,11 +94,18 @@ fn posterior_feature(
         }
 
         let mut sum2 = 0.0;
+        let mut n = 0;
         for &sample in sample_indices {
-            let residual = s_data[(sample, feature)] - gamma;
+            let value = s_data[(sample, feature)];
+            if value.is_nan() {
+                continue;
+            }
+            let residual = value - gamma;
             sum2 += residual * residual;
+            n += 1;
         }
 
+        let n = n as f64;
         let log_likelihood = -0.5 * n * (2.0 * PI * delta).ln() - sum2 / (2.0 * delta);
         if log_likelihood.is_finite() {
             log_likelihoods.push(log_likelihood);

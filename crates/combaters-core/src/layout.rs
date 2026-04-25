@@ -47,7 +47,7 @@ pub(crate) fn validate_dense_finite(
     for sample in 0..n_samples {
         for feature in 0..n_features {
             let idx = row_major_index(sample, feature, n_features);
-            if !values[idx].is_finite() {
+            if values[idx].is_infinite() {
                 return Err(CombatError::NonFiniteValue { sample, feature });
             }
         }

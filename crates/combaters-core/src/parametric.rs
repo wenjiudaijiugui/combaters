@@ -1,7 +1,7 @@
 use nalgebra::DMatrix;
 
 use crate::batch::BatchLevels;
-use crate::design::build_batch_design;
+use crate::design::{build_batch_design, fit_coefficients_by_feature, fit_complete_coefficients};
 use crate::error::CombatError;
 use crate::standardize::Standardization;
 
@@ -118,11 +118,11 @@ pub(crate) fn estimate_gamma_hat(
     ref_level: Option<usize>,
 ) -> Result<DMatrix<f64>, CombatError> {
     let batch_design = build_batch_design(s_data.nrows(), levels, ref_level);
-    let xtx = batch_design.transpose() * &batch_design;
-    let Some(xtx_inv) = xtx.try_inverse() else {
-        return Err(CombatError::SingularDesign);
-    };
-    Ok(xtx_inv * batch_design.transpose() * s_data)
+    if s_data.iter().any(|value| value.is_nan()) {
+        fit_coefficients_by_feature(s_data, &batch_design)
+    } else {
+        fit_complete_coefficients(s_data, &batch_design)
+    }
 }
 
 pub(crate) fn estimate_delta_hat(
@@ -140,32 +140,46 @@ pub(crate) fn estimate_delta_hat(
         }
     }
 
-    let mut batch_means = DMatrix::<f64>::zeros(levels.len(), n_features);
-    for sample in 0..s_data.nrows() {
-        let level = levels.sample_to_level[sample];
-        for feature in 0..n_features {
-            batch_means[(level, feature)] += s_data[(sample, feature)];
-        }
-    }
     for level in 0..levels.len() {
-        let count = levels.counts[level] as f64;
         for feature in 0..n_features {
-            batch_means[(level, feature)] /= count;
-        }
-    }
+            let mut count = 0;
+            let mut sum = 0.0;
 
-    for sample in 0..s_data.nrows() {
-        let level = levels.sample_to_level[sample];
-        for feature in 0..n_features {
-            let residual = s_data[(sample, feature)] - batch_means[(level, feature)];
-            delta_hat[(level, feature)] += residual * residual;
-        }
-    }
+            for sample in 0..s_data.nrows() {
+                if levels.sample_to_level[sample] != level {
+                    continue;
+                }
+                let value = s_data[(sample, feature)];
+                if value.is_nan() {
+                    continue;
+                }
+                count += 1;
+                sum += value;
+            }
 
-    for level in 0..levels.len() {
-        let denom = (levels.counts[level] - 1) as f64;
-        for feature in 0..n_features {
-            delta_hat[(level, feature)] /= denom;
+            if count < 2 {
+                return Err(CombatError::UnsupportedOption {
+                    reason: "scale adjustment requires at least two observed values per batch and feature"
+                        .to_string(),
+                });
+            }
+
+            let count_f64 = count as f64;
+            let mean = sum / count_f64;
+            let mut sum_sq = 0.0;
+            for sample in 0..s_data.nrows() {
+                if levels.sample_to_level[sample] != level {
+                    continue;
+                }
+                let value = s_data[(sample, feature)];
+                if value.is_nan() {
+                    continue;
+                }
+                let residual = value - mean;
+                sum_sq += residual * residual;
+            }
+
+            delta_hat[(level, feature)] = sum_sq / (count_f64 - 1.0);
             if !delta_hat[(level, feature)].is_finite() || delta_hat[(level, feature)] <= 0.0 {
                 return Err(CombatError::NumericalFailure {
                     reason: "delta_hat is not positive finite".to_string(),
@@ -186,7 +200,6 @@ fn solve_posterior(
     priors: ParametricPriors,
 ) -> Result<(Vec<f64>, Vec<f64>), CombatError> {
     let n_features = s_data.ncols();
-    let n = levels.counts[level] as f64;
     let mut g_old = row_values(gamma_hat, level);
     let mut d_old = row_values(delta_hat, level);
 
@@ -195,6 +208,7 @@ fn solve_posterior(
         let mut d_new = vec![0.0; n_features];
 
         for feature in 0..n_features {
+            let n = observed_count_for_level_feature(s_data, levels, level, feature)? as f64;
             g_new[feature] = (priors.t2 * n * gamma_hat[(level, feature)]
                 + d_old[feature] * priors.gamma_bar)
                 / (priors.t2 * n + d_old[feature]);
@@ -202,7 +216,11 @@ fn solve_posterior(
             let mut sum2 = 0.0;
             for sample in 0..s_data.nrows() {
                 if levels.sample_to_level[sample] == level {
-                    let residual = s_data[(sample, feature)] - g_new[feature];
+                    let value = s_data[(sample, feature)];
+                    if value.is_nan() {
+                        continue;
+                    }
+                    let residual = value - g_new[feature];
                     sum2 += residual * residual;
                 }
             }
@@ -227,6 +245,27 @@ fn solve_posterior(
     Err(CombatError::NumericalFailure {
         reason: "parametric posterior solver did not converge in 1000 iterations".to_string(),
     })
+}
+
+fn observed_count_for_level_feature(
+    s_data: &DMatrix<f64>,
+    levels: &BatchLevels,
+    level: usize,
+    feature: usize,
+) -> Result<usize, CombatError> {
+    let count = (0..s_data.nrows())
+        .filter(|&sample| {
+            levels.sample_to_level[sample] == level && !s_data[(sample, feature)].is_nan()
+        })
+        .count();
+
+    if count == 0 {
+        return Err(CombatError::NumericalFailure {
+            reason: "posterior update requires at least one observed value".to_string(),
+        });
+    }
+
+    Ok(count)
 }
 
 fn posterior_change(g_old: &[f64], d_old: &[f64], g_new: &[f64], d_new: &[f64]) -> f64 {
