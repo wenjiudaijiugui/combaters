@@ -4,6 +4,7 @@ use nalgebra::DMatrix;
 
 use crate::batch::BatchLevels;
 use crate::error::CombatError;
+use crate::parallel::ParallelPlan;
 use crate::parametric::{ParametricEstimates, estimate_delta_hat, estimate_gamma_hat};
 use crate::standardize::Standardization;
 
@@ -12,6 +13,7 @@ pub(crate) fn fit_nonparametric(
     levels: &BatchLevels,
     mean_only: bool,
     ref_level: Option<usize>,
+    parallel: ParallelPlan,
 ) -> Result<ParametricEstimates, CombatError> {
     let n_features = state.s_data.ncols();
     if n_features < 2 {
@@ -29,21 +31,22 @@ pub(crate) fn fit_nonparametric(
 
     let mut gamma_star = DMatrix::zeros(levels.len(), n_features);
     let mut delta_star = DMatrix::zeros(levels.len(), n_features);
+    let samples_by_level: Vec<Vec<usize>> = (0..levels.len())
+        .map(|level| samples_for_level(levels, level))
+        .collect();
 
-    for level in 0..levels.len() {
-        let sample_indices = samples_for_level(levels, level);
-        for feature in 0..n_features {
-            let (gamma, delta) = posterior_feature(
-                &state.s_data,
-                &sample_indices,
-                level,
-                feature,
-                &gamma_hat,
-                &delta_hat,
-            )?;
-            gamma_star[(level, feature)] = gamma;
-            delta_star[(level, feature)] = delta;
-        }
+    let posteriors = fit_feature_posteriors(
+        state,
+        levels,
+        &samples_by_level,
+        &gamma_hat,
+        &delta_hat,
+        parallel,
+    );
+    for posterior in posteriors {
+        let posterior = posterior?;
+        gamma_star[(posterior.level, posterior.feature)] = posterior.gamma;
+        delta_star[(posterior.level, posterior.feature)] = posterior.delta;
     }
 
     if let Some(ref_level) = ref_level {
@@ -56,6 +59,81 @@ pub(crate) fn fit_nonparametric(
     Ok(ParametricEstimates {
         gamma_star,
         delta_star,
+    })
+}
+
+struct FeaturePosterior {
+    level: usize,
+    feature: usize,
+    gamma: f64,
+    delta: f64,
+}
+
+fn fit_feature_posteriors(
+    state: &Standardization,
+    levels: &BatchLevels,
+    samples_by_level: &[Vec<usize>],
+    gamma_hat: &DMatrix<f64>,
+    delta_hat: &DMatrix<f64>,
+    parallel: ParallelPlan,
+) -> Vec<Result<FeaturePosterior, CombatError>> {
+    let n_features = state.s_data.ncols();
+    let n_jobs = levels.len() * n_features;
+    if parallel.should_parallelize(n_jobs) {
+        use rayon::prelude::*;
+
+        (0..n_jobs)
+            .into_par_iter()
+            .map(|job| {
+                posterior_job(
+                    job,
+                    n_features,
+                    state,
+                    samples_by_level,
+                    gamma_hat,
+                    delta_hat,
+                )
+            })
+            .collect()
+    } else {
+        (0..n_jobs)
+            .map(|job| {
+                posterior_job(
+                    job,
+                    n_features,
+                    state,
+                    samples_by_level,
+                    gamma_hat,
+                    delta_hat,
+                )
+            })
+            .collect()
+    }
+}
+
+fn posterior_job(
+    job: usize,
+    n_features: usize,
+    state: &Standardization,
+    samples_by_level: &[Vec<usize>],
+    gamma_hat: &DMatrix<f64>,
+    delta_hat: &DMatrix<f64>,
+) -> Result<FeaturePosterior, CombatError> {
+    let level = job / n_features;
+    let feature = job % n_features;
+    let (gamma, delta) = posterior_feature(
+        &state.s_data,
+        &samples_by_level[level],
+        level,
+        feature,
+        gamma_hat,
+        delta_hat,
+    )?;
+    Ok(FeaturePosterior {
+        level,
+        feature,
+        gamma,
+        delta,
     })
 }
 
@@ -148,6 +226,7 @@ fn posterior_feature(
 #[cfg(test)]
 mod tests {
     use crate::batch::BatchLevels;
+    use crate::parallel::ParallelPlan;
     use crate::standardize::standardize_no_covariates;
 
     use super::fit_nonparametric;
@@ -160,7 +239,8 @@ mod tests {
         ];
         let levels = BatchLevels::from_ids(&[10, 10, 10, 20, 20, 20], 6).unwrap();
         let state = standardize_no_covariates(&values, 6, 4, &levels).unwrap();
-        let estimates = fit_nonparametric(&state, &levels, false, None).unwrap();
+        let estimates =
+            fit_nonparametric(&state, &levels, false, None, ParallelPlan::serial()).unwrap();
 
         assert_eq!(estimates.gamma_star.nrows(), 2);
         assert_eq!(estimates.gamma_star.ncols(), 4);
@@ -175,7 +255,8 @@ mod tests {
         ];
         let levels = BatchLevels::from_ids(&[10, 10, 10, 20, 20, 20], 6).unwrap();
         let state = standardize_no_covariates(&values, 6, 4, &levels).unwrap();
-        let estimates = fit_nonparametric(&state, &levels, true, None).unwrap();
+        let estimates =
+            fit_nonparametric(&state, &levels, true, None, ParallelPlan::serial()).unwrap();
 
         assert!(estimates.delta_star.iter().all(|value| *value == 1.0));
     }

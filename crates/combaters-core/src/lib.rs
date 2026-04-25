@@ -11,6 +11,7 @@ mod design;
 mod error;
 mod layout;
 mod nonparametric;
+mod parallel;
 mod parametric;
 mod standardize;
 mod zero_variance;

@@ -41,6 +41,18 @@ def balanced_batch() -> np.ndarray:
     return np.asarray([10, 10, 10, 20, 20, 20], dtype=np.int64)
 
 
+def deterministic_matrix(n_samples: int, n_features: int) -> np.ndarray:
+    values = []
+    for sample in range(n_samples):
+        batch_shift = 0.0 if sample < n_samples // 2 else 3.0
+        within_batch = sample % (n_samples // 2)
+        for feature in range(n_features):
+            signal = feature * 0.03
+            jitter = ((sample * 31 + feature * 17) % 11) * 0.007
+            values.append(batch_shift + within_batch * 0.19 + signal + jitter)
+    return np.asarray(values, dtype=np.float64).reshape((n_samples, n_features))
+
+
 def test_combat_returns_numpy_adjusted_matrix() -> None:
     from combaters import combat
 
@@ -86,6 +98,20 @@ def test_combat_par_prior_false_returns_nonparametric_result() -> None:
     assert np.all(np.isfinite(nonparametric["adjusted"]))
     assert nonparametric["report"]["effective_mean_only"] is False
     assert np.any(np.abs(nonparametric["adjusted"] - parametric["adjusted"]) > 1e-8)
+
+
+def test_parallel_override_matches_serial_for_nonparametric(monkeypatch: pytest.MonkeyPatch) -> None:
+    from combaters import combat
+
+    matrix = deterministic_matrix(32, 96)
+    batch = np.asarray([10] * 16 + [20] * 16, dtype=np.int64)
+
+    monkeypatch.setenv("COMBATERS_PARALLEL", "off")
+    serial = combat(matrix, batch, par_prior=False)["adjusted"].copy()
+    monkeypatch.setenv("COMBATERS_PARALLEL", "parallel")
+    parallel = combat(matrix, batch, par_prior=False)["adjusted"]
+
+    np.testing.assert_array_equal(parallel, serial)
 
 
 def test_combat_par_prior_false_supports_mod_and_ref_batch() -> None:

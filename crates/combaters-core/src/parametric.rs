@@ -3,6 +3,7 @@ use nalgebra::DMatrix;
 use crate::batch::BatchLevels;
 use crate::design::build_batch_design;
 use crate::error::CombatError;
+use crate::parallel::ParallelPlan;
 use crate::standardize::Standardization;
 
 #[derive(Debug, Clone)]
@@ -19,11 +20,17 @@ struct ParametricPriors {
     b_prior: f64,
 }
 
+struct LevelEstimates {
+    gamma_star: Vec<f64>,
+    delta_star: Vec<f64>,
+}
+
 pub(crate) fn fit_parametric(
     state: &Standardization,
     levels: &BatchLevels,
     mean_only: bool,
     ref_level: Option<usize>,
+    parallel: ParallelPlan,
 ) -> Result<ParametricEstimates, CombatError> {
     let n_features = state.s_data.ncols();
     if n_features < 2 {
@@ -38,65 +45,16 @@ pub(crate) fn fit_parametric(
     let mut delta_star = DMatrix::from_element(levels.len(), n_features, 1.0);
 
     if mean_only {
-        for level in 0..levels.len() {
-            let gamma_values = row_values(&gamma_hat, level);
-            let gamma_bar = mean(&gamma_values);
-            let t2 = sample_variance(&gamma_values)?;
-            if !t2.is_finite() || t2 < 0.0 {
-                return Err(CombatError::NumericalFailure {
-                    reason: "parametric prior variance is not finite".to_string(),
-                });
-            }
-
-            for feature in 0..n_features {
-                gamma_star[(level, feature)] =
-                    postmean(gamma_hat[(level, feature)], gamma_bar, 1.0, 1.0, t2);
-            }
-        }
+        let level_estimates = fit_levels(levels.len(), parallel, |level| {
+            fit_mean_only_level(&gamma_hat, level)
+        });
+        write_level_estimates(level_estimates, &mut gamma_star, &mut delta_star)?;
     } else {
         let delta_hat = estimate_delta_hat(&state.s_data, levels)?;
-
-        for level in 0..levels.len() {
-            let gamma_values = row_values(&gamma_hat, level);
-            let delta_values = row_values(&delta_hat, level);
-            let gamma_bar = mean(&gamma_values);
-            let t2 = sample_variance(&gamma_values)?;
-            let delta_mean = mean(&delta_values);
-            let delta_var = sample_variance(&delta_values)?;
-
-            if t2 <= 0.0 || delta_var <= 0.0 {
-                return Err(CombatError::NumericalFailure {
-                    reason: "parametric prior variance is not positive".to_string(),
-                });
-            }
-
-            let a_prior = (2.0 * delta_var + delta_mean * delta_mean) / delta_var;
-            let b_prior = (delta_mean * delta_var + delta_mean.powi(3)) / delta_var;
-            if !a_prior.is_finite() || !b_prior.is_finite() {
-                return Err(CombatError::NumericalFailure {
-                    reason: "parametric prior is not finite".to_string(),
-                });
-            }
-
-            let (level_gamma_star, level_delta_star) = solve_posterior(
-                &state.s_data,
-                levels,
-                level,
-                &gamma_hat,
-                &delta_hat,
-                ParametricPriors {
-                    gamma_bar,
-                    t2,
-                    a_prior,
-                    b_prior,
-                },
-            )?;
-
-            for feature in 0..n_features {
-                gamma_star[(level, feature)] = level_gamma_star[feature];
-                delta_star[(level, feature)] = level_delta_star[feature];
-            }
-        }
+        let level_estimates = fit_levels(levels.len(), parallel, |level| {
+            fit_full_level(state, levels, level, &gamma_hat, &delta_hat, parallel)
+        });
+        write_level_estimates(level_estimates, &mut gamma_star, &mut delta_star)?;
     }
 
     if let Some(ref_level) = ref_level {
@@ -110,6 +68,111 @@ pub(crate) fn fit_parametric(
         gamma_star,
         delta_star,
     })
+}
+
+fn fit_levels<F>(
+    n_levels: usize,
+    parallel: ParallelPlan,
+    fit_level: F,
+) -> Vec<Result<LevelEstimates, CombatError>>
+where
+    F: Fn(usize) -> Result<LevelEstimates, CombatError> + Send + Sync,
+{
+    if parallel.should_parallelize(n_levels) {
+        use rayon::prelude::*;
+
+        (0..n_levels).into_par_iter().map(fit_level).collect()
+    } else {
+        (0..n_levels).map(fit_level).collect()
+    }
+}
+
+fn fit_mean_only_level(
+    gamma_hat: &DMatrix<f64>,
+    level: usize,
+) -> Result<LevelEstimates, CombatError> {
+    let n_features = gamma_hat.ncols();
+    let gamma_values = row_values(gamma_hat, level);
+    let gamma_bar = mean(&gamma_values);
+    let t2 = sample_variance(&gamma_values)?;
+    if !t2.is_finite() || t2 < 0.0 {
+        return Err(CombatError::NumericalFailure {
+            reason: "parametric prior variance is not finite".to_string(),
+        });
+    }
+
+    let gamma_star = (0..n_features)
+        .map(|feature| postmean(gamma_hat[(level, feature)], gamma_bar, 1.0, 1.0, t2))
+        .collect();
+    Ok(LevelEstimates {
+        gamma_star,
+        delta_star: vec![1.0; n_features],
+    })
+}
+
+fn fit_full_level(
+    state: &Standardization,
+    levels: &BatchLevels,
+    level: usize,
+    gamma_hat: &DMatrix<f64>,
+    delta_hat: &DMatrix<f64>,
+    parallel: ParallelPlan,
+) -> Result<LevelEstimates, CombatError> {
+    let gamma_values = row_values(gamma_hat, level);
+    let delta_values = row_values(delta_hat, level);
+    let gamma_bar = mean(&gamma_values);
+    let t2 = sample_variance(&gamma_values)?;
+    let delta_mean = mean(&delta_values);
+    let delta_var = sample_variance(&delta_values)?;
+
+    if t2 <= 0.0 || delta_var <= 0.0 {
+        return Err(CombatError::NumericalFailure {
+            reason: "parametric prior variance is not positive".to_string(),
+        });
+    }
+
+    let a_prior = (2.0 * delta_var + delta_mean * delta_mean) / delta_var;
+    let b_prior = (delta_mean * delta_var + delta_mean.powi(3)) / delta_var;
+    if !a_prior.is_finite() || !b_prior.is_finite() {
+        return Err(CombatError::NumericalFailure {
+            reason: "parametric prior is not finite".to_string(),
+        });
+    }
+
+    let (gamma_star, delta_star) = solve_posterior(
+        &state.s_data,
+        levels,
+        level,
+        gamma_hat,
+        delta_hat,
+        ParametricPriors {
+            gamma_bar,
+            t2,
+            a_prior,
+            b_prior,
+        },
+        parallel,
+    )?;
+
+    Ok(LevelEstimates {
+        gamma_star,
+        delta_star,
+    })
+}
+
+fn write_level_estimates(
+    level_estimates: Vec<Result<LevelEstimates, CombatError>>,
+    gamma_star: &mut DMatrix<f64>,
+    delta_star: &mut DMatrix<f64>,
+) -> Result<(), CombatError> {
+    for (level, estimates) in level_estimates.into_iter().enumerate() {
+        let estimates = estimates?;
+        for feature in 0..gamma_star.ncols() {
+            gamma_star[(level, feature)] = estimates.gamma_star[feature];
+            delta_star[(level, feature)] = estimates.delta_star[feature];
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn estimate_gamma_hat(
@@ -184,36 +247,17 @@ fn solve_posterior(
     gamma_hat: &DMatrix<f64>,
     delta_hat: &DMatrix<f64>,
     priors: ParametricPriors,
+    parallel: ParallelPlan,
 ) -> Result<(Vec<f64>, Vec<f64>), CombatError> {
-    let n_features = s_data.ncols();
     let n = levels.counts[level] as f64;
     let mut g_old = row_values(gamma_hat, level);
     let mut d_old = row_values(delta_hat, level);
 
     for _iteration in 0..1000 {
-        let mut g_new = vec![0.0; n_features];
-        let mut d_new = vec![0.0; n_features];
-
-        for feature in 0..n_features {
-            g_new[feature] = (priors.t2 * n * gamma_hat[(level, feature)]
-                + d_old[feature] * priors.gamma_bar)
-                / (priors.t2 * n + d_old[feature]);
-
-            let mut sum2 = 0.0;
-            for sample in 0..s_data.nrows() {
-                if levels.sample_to_level[sample] == level {
-                    let residual = s_data[(sample, feature)] - g_new[feature];
-                    sum2 += residual * residual;
-                }
-            }
-
-            d_new[feature] = (0.5 * sum2 + priors.b_prior) / (n / 2.0 + priors.a_prior - 1.0);
-            if !g_new[feature].is_finite() || !d_new[feature].is_finite() || d_new[feature] <= 0.0 {
-                return Err(CombatError::NumericalFailure {
-                    reason: "posterior update produced a non-finite value".to_string(),
-                });
-            }
-        }
+        let updates = posterior_updates(
+            s_data, levels, level, gamma_hat, &d_old, priors, n, parallel,
+        );
+        let (g_new, d_new) = split_posterior_updates(updates)?;
 
         let change = posterior_change(&g_old, &d_old, &g_new, &d_new);
         g_old = g_new;
@@ -227,6 +271,83 @@ fn solve_posterior(
     Err(CombatError::NumericalFailure {
         reason: "parametric posterior solver did not converge in 1000 iterations".to_string(),
     })
+}
+
+fn posterior_updates(
+    s_data: &DMatrix<f64>,
+    levels: &BatchLevels,
+    level: usize,
+    gamma_hat: &DMatrix<f64>,
+    d_old: &[f64],
+    priors: ParametricPriors,
+    n: f64,
+    parallel: ParallelPlan,
+) -> Vec<Result<(f64, f64), CombatError>> {
+    let n_features = s_data.ncols();
+    if parallel.should_parallelize(n_features) {
+        use rayon::prelude::*;
+
+        (0..n_features)
+            .into_par_iter()
+            .map(|feature| {
+                posterior_update_feature(
+                    s_data, levels, level, feature, gamma_hat, d_old, priors, n,
+                )
+            })
+            .collect()
+    } else {
+        (0..n_features)
+            .map(|feature| {
+                posterior_update_feature(
+                    s_data, levels, level, feature, gamma_hat, d_old, priors, n,
+                )
+            })
+            .collect()
+    }
+}
+
+fn posterior_update_feature(
+    s_data: &DMatrix<f64>,
+    levels: &BatchLevels,
+    level: usize,
+    feature: usize,
+    gamma_hat: &DMatrix<f64>,
+    d_old: &[f64],
+    priors: ParametricPriors,
+    n: f64,
+) -> Result<(f64, f64), CombatError> {
+    let gamma = (priors.t2 * n * gamma_hat[(level, feature)] + d_old[feature] * priors.gamma_bar)
+        / (priors.t2 * n + d_old[feature]);
+
+    let mut sum2 = 0.0;
+    for sample in 0..s_data.nrows() {
+        if levels.sample_to_level[sample] == level {
+            let residual = s_data[(sample, feature)] - gamma;
+            sum2 += residual * residual;
+        }
+    }
+
+    let delta = (0.5 * sum2 + priors.b_prior) / (n / 2.0 + priors.a_prior - 1.0);
+    if !gamma.is_finite() || !delta.is_finite() || delta <= 0.0 {
+        return Err(CombatError::NumericalFailure {
+            reason: "posterior update produced a non-finite value".to_string(),
+        });
+    }
+
+    Ok((gamma, delta))
+}
+
+fn split_posterior_updates(
+    updates: Vec<Result<(f64, f64), CombatError>>,
+) -> Result<(Vec<f64>, Vec<f64>), CombatError> {
+    let mut gamma = Vec::with_capacity(updates.len());
+    let mut delta = Vec::with_capacity(updates.len());
+    for update in updates {
+        let (feature_gamma, feature_delta) = update?;
+        gamma.push(feature_gamma);
+        delta.push(feature_delta);
+    }
+    Ok((gamma, delta))
 }
 
 fn posterior_change(g_old: &[f64], d_old: &[f64], g_new: &[f64], d_new: &[f64]) -> f64 {
@@ -298,6 +419,7 @@ fn sample_variance(values: &[f64]) -> Result<f64, CombatError> {
 #[cfg(test)]
 mod tests {
     use crate::batch::BatchLevels;
+    use crate::parallel::ParallelPlan;
     use crate::standardize::standardize_no_covariates;
 
     use super::fit_parametric;
@@ -310,7 +432,8 @@ mod tests {
         ];
         let levels = BatchLevels::from_ids(&[10, 10, 10, 20, 20, 20], 6).unwrap();
         let state = standardize_no_covariates(&values, 6, 4, &levels).unwrap();
-        let estimates = fit_parametric(&state, &levels, false, None).unwrap();
+        let estimates =
+            fit_parametric(&state, &levels, false, None, ParallelPlan::serial()).unwrap();
 
         assert_eq!(estimates.gamma_star.nrows(), 2);
         assert_eq!(estimates.gamma_star.ncols(), 4);
@@ -325,7 +448,8 @@ mod tests {
         ];
         let levels = BatchLevels::from_ids(&[10, 10, 10, 20, 20, 20], 6).unwrap();
         let state = standardize_no_covariates(&values, 6, 4, &levels).unwrap();
-        let estimates = fit_parametric(&state, &levels, true, None).unwrap();
+        let estimates =
+            fit_parametric(&state, &levels, true, None, ParallelPlan::serial()).unwrap();
 
         assert!(estimates.delta_star.iter().all(|value| *value == 1.0));
     }
