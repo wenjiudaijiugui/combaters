@@ -4,7 +4,7 @@ use crate::batch::BatchLevels;
 use crate::error::CombatError;
 use crate::layout::row_major_index;
 use crate::nonparametric::fit_nonparametric;
-use crate::parametric::fit_parametric;
+use crate::parametric::{fit_parametric, fit_unshrunken_mean_only};
 use crate::standardize::standardize;
 use crate::zero_variance::{project_features, reinsert_features, select_nonzero_variance_features};
 
@@ -14,15 +14,24 @@ pub(crate) fn combat_dense_impl(
     levels: BatchLevels,
 ) -> Result<CombatDenseResult, CombatError> {
     let singleton_batches = levels.singleton_raw_ids();
-    let effective_mean_only = options.mean_only || !singleton_batches.is_empty();
     let ref_level = options.ref_batch.and_then(|raw| levels.resolve_raw(raw));
 
     let selection =
         select_nonzero_variance_features(input.values, input.n_samples, input.n_features, &levels);
+    let fitting_features = selection.kept_features.len();
+    let underpowered_for_eb = fitting_features < 2;
+    let effective_mean_only =
+        options.mean_only || !singleton_batches.is_empty() || underpowered_for_eb;
     if selection.kept_features.is_empty() {
-        return Err(CombatError::NumericalFailure {
-            reason: "all features have zero variance within at least one multi-sample batch"
-                .to_string(),
+        return Ok(CombatDenseResult {
+            adjusted: input.values.to_vec(),
+            n_samples: input.n_samples,
+            n_features: input.n_features,
+            report: CombatDenseReport {
+                effective_mean_only,
+                singleton_batches,
+                zero_variance_features: selection.zero_variance_features,
+            },
         });
     }
 
@@ -32,7 +41,6 @@ pub(crate) fn combat_dense_impl(
         input.n_features,
         &selection.kept_features,
     );
-    let fitting_features = selection.kept_features.len();
     let state = standardize(
         &fitting_values,
         input.n_samples,
@@ -41,7 +49,9 @@ pub(crate) fn combat_dense_impl(
         input.covariates,
         ref_level,
     )?;
-    let estimates = if options.par_prior {
+    let estimates = if underpowered_for_eb {
+        fit_unshrunken_mean_only(&state, &levels, ref_level)?
+    } else if options.par_prior {
         fit_parametric(&state, &levels, effective_mean_only, ref_level)?
     } else {
         fit_nonparametric(&state, &levels, effective_mean_only, ref_level)?

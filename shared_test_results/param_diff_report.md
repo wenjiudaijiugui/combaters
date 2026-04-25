@@ -27,3 +27,11 @@
 ## Missing Data Notes
 
 `combaters` follows the `sva::ComBat` NA-aware branch for the core data matrix: beta and gamma fits drop missing responses per feature, pooled and batch variances ignore missing values, and parametric/non-parametric posterior updates count only observed standardized values. Infinite data values remain invalid. The optional `mod` matrix is still required to be finite.
+
+## Degenerate Input Policy
+
+| Case | combaters behavior |
+|------|--------------------|
+| zero-variance feature inside any multi-sample batch | copy that feature back unchanged and report its zero-based index in `zero_variance_features` |
+| all features are zero-variance/unadjustable | return the original matrix and report all unadjustable feature indexes instead of failing |
+| exactly one adjustable feature remains | skip empirical Bayes prior fitting and use unshrunken mean-only location adjustment for that feature |

@@ -212,6 +212,42 @@ def test_combat_singleton_batch_uses_effective_mean_only() -> None:
     assert result["report"]["singleton_batches"] == [2]
 
 
+def test_combat_all_zero_variance_features_returns_original_matrix() -> None:
+    from combaters import combat
+
+    matrix = np.asarray(
+        [
+            [1.0, 5.0],
+            [1.0, 5.0],
+            [3.0, 7.0],
+            [3.0, 7.0],
+        ],
+        dtype=np.float64,
+    )
+    batch = np.asarray([10, 10, 20, 20], dtype=np.int64)
+
+    result = combat(matrix, batch)
+
+    np.testing.assert_array_equal(result["adjusted"], matrix)
+    assert result["report"]["zero_variance_features"] == [0, 1]
+    assert result["report"]["effective_mean_only"] is True
+
+
+def test_combat_single_feature_skips_eb_and_uses_mean_only_adjustment() -> None:
+    from combaters import combat
+
+    matrix = np.asarray([[1.0], [3.0], [7.0], [9.0]], dtype=np.float64)
+    batch = np.asarray([10, 10, 20, 20], dtype=np.int64)
+
+    result = combat(matrix, batch)
+    nonparametric_result = combat(matrix, batch, par_prior=False)
+
+    for result in [result, nonparametric_result]:
+        np.testing.assert_allclose(result["adjusted"], np.asarray([[4.0], [6.0], [4.0], [6.0]]))
+        assert result["report"]["zero_variance_features"] == []
+        assert result["report"]["effective_mean_only"] is True
+
+
 def test_combat_rejects_mod_row_mismatch() -> None:
     from combaters import combat
 

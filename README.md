@@ -22,6 +22,8 @@ adjusted = result["adjusted"]
 
 The current implementation covers dense ComBat with parametric (`par_prior=True`) and non-parametric (`par_prior=False`) empirical Bayes, `mean_only` true or false, optional `ref_batch` by original batch id, optional numeric `mod`, and NA-aware fitting for missing `values`. If any batch has a single sample, ComBat automatically uses effective mean-only adjustment. With `ref_batch`, reference-batch rows are returned unchanged. Features must still have enough observed values to fit the design and, when scale adjustment is enabled, at least two observed values per batch and feature. `prior.plots` and `BPPARAM` are not exposed.
 
+Degenerate feature handling is user-facing and reported. Features with zero variance inside any multi-sample batch are treated as unadjustable, copied back unchanged, and listed by zero-based column index in `result["report"]["zero_variance_features"]`. If every feature is unadjustable, `adjusted` is the original matrix and no hard failure is raised. If exactly one feature remains adjustable, empirical Bayes prior fitting is skipped and that feature uses unshrunken mean-only location adjustment; `result["report"]["effective_mean_only"]` is `True`.
+
 ## Rust Layout
 
 - `crates/combaters-core`: pure Rust ComBat core
