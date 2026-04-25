@@ -6,9 +6,9 @@
 |-----------|-------|--------|
 | par_prior | True or False | parametric fixture parity for True; non-parametric EB supported |
 | mean_only | True or False | supported |
-| ref_batch | None or original batch id | supported |
+| ref_batch | None or original batch label | supported |
 | mod | numeric matrix or None | supported |
-| batch | int64 vector | exact parity |
+| batch | R factor-like labels | supports strings, object/category labels, negative integers, and the existing non-negative int64 fast path |
 
 ## Unsupported Parameters
 
@@ -19,6 +19,6 @@
 
 ## Classification
 
-- **supported**: `par_prior=True` and `par_prior=False`, `mean_only` true or false, optional original-id `ref_batch`, optional numeric `mod`
+- **supported**: `par_prior=True` and `par_prior=False`, `mean_only` true or false, optional original-label `ref_batch`, optional numeric `mod`, factor-like `batch` labels
 - **documented difference**: `prior.plots`, `BPPARAM`
 - **unsupported**: plotting/parallel control

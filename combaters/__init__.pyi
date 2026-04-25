@@ -9,5 +9,5 @@ def combat(
     mod: Any | None = None,
     par_prior: bool = True,
     mean_only: bool = False,
-    ref_batch: int | None = None,
+    ref_batch: Any | None = None,
 ) -> dict[str, object]: ...

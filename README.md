@@ -11,16 +11,16 @@ import numpy as np
 from combaters import combat
 
 values = np.asarray(..., dtype=np.float64).reshape((n_samples, n_features))
-batch = np.asarray(..., dtype=np.int64)
+batch = np.asarray(...)
 mod = np.asarray(..., dtype=np.float64).reshape((n_samples, n_covariates))
 
 result = combat(values, batch, mod=mod, par_prior=True, mean_only=False, ref_batch=None)
 adjusted = result["adjusted"]
 ```
 
-`combat` requires `values` to be a C-contiguous row-major `float64` array with shape `(n_samples, n_features)`, `batch` to be a contiguous `int64` vector with length `n_samples`, and optional `mod` to be a C-contiguous row-major `float64` array with shape `(n_samples, n_covariates)`. Negative batch ids are rejected.
+`combat` requires `values` to be a C-contiguous row-major `float64` array with shape `(n_samples, n_features)` and optional `mod` to be a C-contiguous row-major `float64` array with shape `(n_samples, n_covariates)`. `batch` is a one-dimensional vector with length `n_samples`; the Python API accepts R factor-like labels such as strings, object/category labels, and negative integers. Non-negative contiguous `int64` batches keep the direct Rust fast path. Other labels are factorized in Python to compact internal ids before entering the Rust core.
 
-The current implementation covers dense ComBat with parametric (`par_prior=True`) and non-parametric (`par_prior=False`) empirical Bayes, `mean_only` true or false, optional `ref_batch` by original batch id, and optional numeric `mod`. If any batch has a single sample, ComBat automatically uses effective mean-only adjustment. With `ref_batch`, reference-batch rows are returned unchanged. `prior.plots` and `BPPARAM` are not exposed.
+The current implementation covers dense ComBat with parametric (`par_prior=True`) and non-parametric (`par_prior=False`) empirical Bayes, `mean_only` true or false, optional `ref_batch` by the same original label used in `batch`, and optional numeric `mod`. If any batch has a single sample, ComBat automatically uses effective mean-only adjustment. With `ref_batch`, reference-batch rows are returned unchanged. `prior.plots` and `BPPARAM` are not exposed.
 
 ## Rust Layout
 
