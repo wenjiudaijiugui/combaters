@@ -11,6 +11,26 @@ from ._combaters import combat as _combat
 _NO_INT_REF = object()
 
 
+def combat(
+    values: npt.ArrayLike,
+    batch: npt.ArrayLike,
+    mod: object | None = None,
+    par_prior: bool = True,
+    mean_only: bool = False,
+    ref_batch: object | None = None,
+    *,
+    formula: str | None = None,
+) -> dict[str, object]:
+    """Run dense ComBat after preparing Python-friendly inputs."""
+    values_array = _float64_matrix("values", values)
+    batch_array, ref_arg, levels = _prepare_batch(batch, ref_batch)
+    mod_array = _prepare_mod(mod, formula)
+    result = _combat(values_array, batch_array, mod_array, par_prior, mean_only, ref_arg)
+    if levels is not None:
+        _restore_report_labels(result, levels)
+    return result
+
+
 def _float64_matrix(name: str, value: npt.ArrayLike) -> np.ndarray:
     try:
         array = np.asarray(value, dtype=np.float64)
@@ -19,24 +39,6 @@ def _float64_matrix(name: str, value: npt.ArrayLike) -> np.ndarray:
     if array.ndim != 2:
         raise ValueError(f"{name} must be a 2D float64 array-like")
     return np.ascontiguousarray(array, dtype=np.float64)
-
-
-def combat(
-    values: npt.ArrayLike,
-    batch: npt.ArrayLike,
-    mod: npt.ArrayLike | None = None,
-    par_prior: bool = True,
-    mean_only: bool = False,
-    ref_batch: object | None = None,
-) -> dict[str, object]:
-    """Run dense ComBat after coercing array-like inputs to contiguous arrays."""
-    values_array = _float64_matrix("values", values)
-    batch_array, ref_arg, levels = _prepare_batch(batch, ref_batch)
-    mod_array = None if mod is None else _float64_matrix("mod", mod)
-    result = _combat(values_array, batch_array, mod_array, par_prior, mean_only, ref_arg)
-    if levels is not None:
-        _restore_report_labels(result, levels)
-    return result
 
 
 def _prepare_batch(
@@ -93,6 +95,95 @@ def _factorize_labels(labels: np.ndarray) -> tuple[np.ndarray, list[object]]:
             levels.append(label)
         compact[sample] = level
     return compact, levels
+
+
+def _prepare_mod(mod: object | None, formula: str | None) -> np.ndarray | None:
+    if formula is not None:
+        return _prepare_formula_mod(mod, formula)
+    if mod is None:
+        return None
+    if isinstance(mod, np.ndarray):
+        return _float64_matrix("mod", mod)
+    return _prepare_dataframe_like_mod(mod)
+
+
+def _prepare_formula_mod(mod: object | None, formula: str) -> np.ndarray:
+    if mod is None:
+        raise ValueError("formula requires mod data")
+    try:
+        import patsy
+    except ImportError as exc:
+        raise ImportError("formula support requires the optional patsy package") from exc
+
+    design = patsy.dmatrix(formula, mod, return_type="dataframe")
+    return np.ascontiguousarray(np.asarray(design, dtype=np.float64))
+
+
+def _prepare_dataframe_like_mod(mod: object) -> np.ndarray:
+    raw = _to_numpy(mod)
+    if raw.ndim == 1:
+        columns = [raw]
+    elif raw.ndim == 2:
+        columns = [raw[:, column] for column in range(raw.shape[1])]
+    else:
+        raise ValueError("mod must be a 1D or 2D array-like object")
+
+    n_samples = raw.shape[0]
+    encoded_columns: list[np.ndarray] = []
+    for column in columns:
+        encoded_columns.extend(_encode_column(column))
+
+    if not encoded_columns:
+        return np.empty((n_samples, 0), dtype=np.float64)
+    return np.ascontiguousarray(np.column_stack(encoded_columns), dtype=np.float64)
+
+
+def _to_numpy(value: object) -> np.ndarray:
+    if hasattr(value, "to_numpy"):
+        raw = value.to_numpy()  # type: ignore[attr-defined]
+    else:
+        raw = np.asarray(value)
+    return np.asarray(raw)
+
+
+def _encode_column(column: np.ndarray) -> list[np.ndarray]:
+    numeric = _try_numeric_column(column)
+    if numeric is not None:
+        return [numeric]
+    return _dummy_columns(column)
+
+
+def _try_numeric_column(column: np.ndarray) -> np.ndarray | None:
+    try:
+        return np.asarray(column, dtype=np.float64)
+    except (TypeError, ValueError):
+        return None
+
+
+def _dummy_columns(column: np.ndarray) -> list[np.ndarray]:
+    values = np.asarray(column, dtype=object)
+    categories: list[object] = []
+    for value in values:
+        if _is_missing(value):
+            raise ValueError("categorical mod columns must not contain missing values")
+        if not any(_labels_equal(value, category) for category in categories):
+            categories.append(value)
+
+    return [
+        np.asarray([1.0 if _labels_equal(value, category) else 0.0 for value in values])
+        for category in categories[1:]
+    ]
+
+
+def _is_missing(value: object) -> bool:
+    if value is None:
+        return True
+    if type(value).__name__ in {"NAType", "NaTType"}:
+        return True
+    try:
+        return bool(np.isnan(value))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
 
 
 def _find_label(levels: list[object], label: object) -> int | None:

@@ -22,7 +22,15 @@ adjusted = result["adjusted"]
 
 `batch` is a one-dimensional vector with length `n_samples`; the Python API accepts R factor-like labels such as strings, object/category labels, negative integers, and strided/integer arrays. Non-negative contiguous `int64` batches keep the direct Rust fast path. Other labels are factorized in Python to compact internal ids before entering the Rust core. `ref_batch` uses the same original label type as `batch`.
 
-The current implementation covers dense ComBat with parametric (`par_prior=True`) and non-parametric (`par_prior=False`) empirical Bayes, `mean_only` true or false, optional `ref_batch` by original batch label, optional numeric `mod`, and NA-aware fitting for missing `values`. If any batch has a single sample, ComBat automatically uses effective mean-only adjustment. With `ref_batch`, reference-batch rows are returned unchanged. Features must still have enough observed values to fit the design and, when scale adjustment is enabled, at least two observed values per batch and feature. `prior.plots` and `BPPARAM` are not exposed.
+Optional `mod` accepts the existing numeric ndarray path with shape `(n_samples, n_covariates)`. It also accepts pandas `DataFrame`/`Series` inputs and DataFrame-like objects with `to_numpy()`: numeric columns are kept as covariates, and non-numeric columns are dummy-coded with the first observed level dropped as the reference. A `formula` keyword can be used when `patsy` is installed:
+
+```python
+result = combat(values, batch, mod=metadata, formula="~ age + C(treatment)")
+```
+
+The Rust core still receives a numeric covariate matrix. Formula support is optional and does not make pandas or patsy required runtime dependencies for the ndarray path.
+
+The current implementation covers dense ComBat with parametric (`par_prior=True`) and non-parametric (`par_prior=False`) empirical Bayes, `mean_only` true or false, optional `ref_batch` by original batch label, optional `mod`, and NA-aware fitting for missing `values`. If any batch has a single sample, ComBat automatically uses effective mean-only adjustment. With `ref_batch`, reference-batch rows are returned unchanged. Features must still have enough observed values to fit the design and, when scale adjustment is enabled, at least two observed values per batch and feature. `prior.plots` and `BPPARAM` are not exposed.
 
 Degenerate feature handling is user-facing and reported. Features with zero variance inside any multi-sample batch are treated as unadjustable, copied back unchanged, and listed by zero-based column index in `result["report"]["zero_variance_features"]`. If every feature is unadjustable, `adjusted` is the original matrix and no hard failure is raised. If exactly one feature remains adjustable, empirical Bayes prior fitting is skipped and that feature uses unshrunken mean-only location adjustment; `result["report"]["effective_mean_only"]` is `True`.
 
