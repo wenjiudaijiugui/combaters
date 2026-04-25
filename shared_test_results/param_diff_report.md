@@ -16,13 +16,14 @@
 | Parameter | sva supports | combaters | Error message |
 |-----------|-------------|-----------|---------------|
 | prior.plots | Yes | No | not in API |
-| BPPARAM (parallel) | Yes | No | not in API |
+| BPPARAM (parallel) | Yes | No public parameter | core auto-selects serial or Rayon parallel execution |
 
 ## Classification
 
 - **supported**: `par_prior=True` and `par_prior=False`, `mean_only` true or false, optional original-id `ref_batch`, optional numeric finite `mod`, and NA-aware `values`
 - **documented difference**: `prior.plots`, `BPPARAM`
-- **unsupported**: plotting/parallel control
+- **unsupported**: plotting and user-supplied parallel backends
+- **internal behavior**: Rust core keeps small matrices serial and enables Rayon for larger matrices at the documented threshold; `COMBATERS_PARALLEL=off|parallel|auto` is an operational escape hatch, not an API compatibility surface
 
 ## Missing Data Notes
 

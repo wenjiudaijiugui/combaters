@@ -24,6 +24,12 @@ The current implementation covers dense ComBat with parametric (`par_prior=True`
 
 Degenerate feature handling is user-facing and reported. Features with zero variance inside any multi-sample batch are treated as unadjustable, copied back unchanged, and listed by zero-based column index in `result["report"]["zero_variance_features"]`. If every feature is unadjustable, `adjusted` is the original matrix and no hard failure is raised. If exactly one feature remains adjustable, empirical Bayes prior fitting is skipped and that feature uses unshrunken mean-only location adjustment; `result["report"]["effective_mean_only"]` is `True`.
 
+## Parallel Execution
+
+Parallelism is automatic inside the Rust core and is not a Python or R-style `BPPARAM` API. Small matrices stay on the serial path. Larger matrices use Rayon when the matrix has at least 65,536 cells and at least 64 independent feature-by-batch jobs.
+
+The parallel loops write fixed output indices for feature selection, projection, posterior fitting, adjustment, and feature reinsertion, so results are deterministic for the same inputs. For operational testing only, `COMBATERS_PARALLEL=off` forces the serial path and `COMBATERS_PARALLEL=parallel` forces the parallel path; unset or `auto` keeps the size-based policy.
+
 ## Rust Layout
 
 - `crates/combaters-core`: pure Rust ComBat core
