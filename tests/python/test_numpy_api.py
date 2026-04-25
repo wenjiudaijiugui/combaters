@@ -73,6 +73,94 @@ def test_combat_accepts_mod_matrix() -> None:
     assert adjusted.shape == (6, 4)
 
 
+def test_combat_accepts_numeric_dataframe_mod() -> None:
+    pd = pytest.importorskip("pandas")
+    from combaters import combat
+
+    score = np.asarray([0.0, 0.2, 0.4, 0.6, 0.8, 1.0], dtype=np.float64)
+    expected = combat(balanced_matrix(), balanced_batch(), mod=score.reshape((6, 1)))
+
+    result = combat(
+        balanced_matrix(),
+        balanced_batch(),
+        mod=pd.DataFrame({"score": score}),
+    )
+
+    np.testing.assert_allclose(result["adjusted"], expected["adjusted"])
+
+
+def test_combat_accepts_numeric_series_mod() -> None:
+    pd = pytest.importorskip("pandas")
+    from combaters import combat
+
+    score = np.asarray([0.0, 0.2, 0.4, 0.6, 0.8, 1.0], dtype=np.float64)
+    expected = combat(balanced_matrix(), balanced_batch(), mod=score.reshape((6, 1)))
+
+    result = combat(
+        balanced_matrix(),
+        balanced_batch(),
+        mod=pd.Series(score, name="score"),
+    )
+
+    np.testing.assert_allclose(result["adjusted"], expected["adjusted"])
+
+
+def test_combat_dummy_codes_categorical_dataframe_mod() -> None:
+    pd = pytest.importorskip("pandas")
+    from combaters import combat
+
+    score = np.asarray([0.0, 0.2, 0.4, 0.6, 0.8, 1.0], dtype=np.float64)
+    group = ["control", "treated", "control", "treated", "control", "treated"]
+    treated = np.asarray([0.0, 1.0, 0.0, 1.0, 0.0, 1.0], dtype=np.float64)
+    expected_mod = np.column_stack([score, treated])
+    expected = combat(balanced_matrix(), balanced_batch(), mod=expected_mod)
+
+    result = combat(
+        balanced_matrix(),
+        balanced_batch(),
+        mod=pd.DataFrame({"score": score, "group": group}),
+    )
+
+    np.testing.assert_allclose(result["adjusted"], expected["adjusted"])
+
+
+def test_combat_drops_dataframe_intercept_mod_column() -> None:
+    pd = pytest.importorskip("pandas")
+    from combaters import combat
+
+    score = np.asarray([0.0, 0.2, 0.4, 0.6, 0.8, 1.0], dtype=np.float64)
+    expected = combat(balanced_matrix(), balanced_batch(), mod=score.reshape((6, 1)))
+
+    result = combat(
+        balanced_matrix(),
+        balanced_batch(),
+        mod=pd.DataFrame({"intercept": np.ones(6), "score": score}),
+    )
+
+    np.testing.assert_allclose(result["adjusted"], expected["adjusted"])
+
+
+def test_combat_formula_uses_optional_patsy_design() -> None:
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+    from combaters import combat
+
+    score = np.asarray([0.0, 0.2, 0.4, 0.6, 0.8, 1.0], dtype=np.float64)
+    group = ["control", "treated", "control", "treated", "control", "treated"]
+    treated = np.asarray([0.0, 1.0, 0.0, 1.0, 0.0, 1.0], dtype=np.float64)
+    expected_mod = np.column_stack([treated, score])
+    expected = combat(balanced_matrix(), balanced_batch(), mod=expected_mod)
+
+    result = combat(
+        balanced_matrix(),
+        balanced_batch(),
+        mod=pd.DataFrame({"score": score, "group": group}),
+        formula="~ score + C(group)",
+    )
+
+    np.testing.assert_allclose(result["adjusted"], expected["adjusted"])
+
+
 def test_combat_par_prior_false_returns_nonparametric_result() -> None:
     from combaters import combat
 

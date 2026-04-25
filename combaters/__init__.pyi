@@ -10,4 +10,6 @@ def combat(
     par_prior: bool = True,
     mean_only: bool = False,
     ref_batch: int | None = None,
+    *,
+    formula: str | None = None,
 ) -> dict[str, object]: ...
