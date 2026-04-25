@@ -62,6 +62,43 @@ def test_combat_returns_numpy_adjusted_matrix() -> None:
     }
 
 
+def test_combat_accepts_list_values_and_tuple_batch() -> None:
+    from combaters import combat
+
+    result = combat(balanced_matrix().tolist(), tuple(balanced_batch().tolist()))
+    expected = combat(balanced_matrix(), balanced_batch())
+
+    np.testing.assert_allclose(result["adjusted"], expected["adjusted"])
+    assert result["adjusted"].dtype == np.float64
+
+
+def test_combat_accepts_float32_values() -> None:
+    from combaters import combat
+
+    result = combat(balanced_matrix().astype(np.float32), balanced_batch())
+    expected = combat(balanced_matrix(), balanced_batch())
+
+    np.testing.assert_allclose(
+        result["adjusted"],
+        expected["adjusted"],
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    assert result["adjusted"].dtype == np.float64
+
+
+def test_combat_accepts_integer_values() -> None:
+    from combaters import combat
+
+    matrix = np.rint(balanced_matrix()).astype(np.int32)
+
+    result = combat(matrix, balanced_batch())
+
+    assert result["adjusted"].shape == matrix.shape
+    assert result["adjusted"].dtype == np.float64
+    assert np.all(np.isfinite(result["adjusted"]))
+
+
 def test_combat_accepts_mod_matrix() -> None:
     from combaters import combat
 
@@ -191,22 +228,33 @@ def test_combat_rejects_mod_row_mismatch() -> None:
         combat(balanced_matrix(), balanced_batch(), mod=mod)
 
 
-def test_combat_rejects_fortran_order_values() -> None:
+def test_combat_accepts_fortran_order_values() -> None:
     from combaters import combat
 
     matrix = np.asfortranarray(balanced_matrix())
+    expected = combat(balanced_matrix(), balanced_batch())
 
-    with pytest.raises(ValueError, match="C-contiguous row-major"):
-        combat(matrix, balanced_batch())
+    result = combat(matrix, balanced_batch())
+
+    assert matrix.flags.f_contiguous
+    assert not matrix.flags.c_contiguous
+    np.testing.assert_allclose(result["adjusted"], expected["adjusted"])
 
 
-def test_combat_rejects_strided_batch() -> None:
+def test_combat_accepts_strided_int32_batch() -> None:
     from combaters import combat
 
-    batch = np.asarray([10, 99, 10, 99, 10, 99, 20, 99, 20, 99, 20, 99], dtype=np.int64)[::2]
+    batch = np.asarray(
+        [10, 99, 10, 99, 10, 99, 20, 99, 20, 99, 20, 99],
+        dtype=np.int32,
+    )[::2]
+    expected = combat(balanced_matrix(), balanced_batch())
 
-    with pytest.raises(ValueError, match="contiguous int64"):
-        combat(balanced_matrix(), batch)
+    result = combat(balanced_matrix(), batch)
+
+    assert batch.dtype == np.int32
+    assert not batch.flags.c_contiguous
+    np.testing.assert_allclose(result["adjusted"], expected["adjusted"])
 
 
 def test_combat_rejects_negative_batch_id() -> None:

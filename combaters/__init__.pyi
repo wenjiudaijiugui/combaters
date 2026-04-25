@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Any
+from numpy.typing import ArrayLike
 
 
 def combat(
-    values: Any,
-    batch: Any,
-    mod: Any | None = None,
+    values: ArrayLike,
+    batch: ArrayLike,
+    mod: ArrayLike | None = None,
     par_prior: bool = True,
     mean_only: bool = False,
     ref_batch: int | None = None,

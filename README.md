@@ -18,7 +18,7 @@ result = combat(values, batch, mod=mod, par_prior=True, mean_only=False, ref_bat
 adjusted = result["adjusted"]
 ```
 
-`combat` requires `values` to be a C-contiguous row-major `float64` array with shape `(n_samples, n_features)`, `batch` to be a contiguous `int64` vector with length `n_samples`, and optional `mod` to be a C-contiguous row-major `float64` array with shape `(n_samples, n_covariates)`. Negative batch ids are rejected.
+`combat` accepts array-like `values` with shape `(n_samples, n_features)`, including lists or tuples, `float32` or integer arrays, and Fortran-order or strided arrays. The Python wrapper converts `values` and optional `mod` to C-contiguous `float64` arrays, and converts integer `batch` labels, including `int32` or strided arrays, to a contiguous `int64` vector with length `n_samples`. Batch labels must be integers. Negative batch ids are rejected.
 
 The current implementation covers dense ComBat with parametric (`par_prior=True`) and non-parametric (`par_prior=False`) empirical Bayes, `mean_only` true or false, optional `ref_batch` by original batch id, and optional numeric `mod`. If any batch has a single sample, ComBat automatically uses effective mean-only adjustment. With `ref_batch`, reference-batch rows are returned unchanged. `prior.plots` and `BPPARAM` are not exposed.
 
