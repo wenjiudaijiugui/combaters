@@ -112,6 +112,26 @@ pub(crate) fn fit_parametric(
     })
 }
 
+pub(crate) fn fit_unshrunken_mean_only(
+    state: &Standardization,
+    levels: &BatchLevels,
+    ref_level: Option<usize>,
+) -> Result<ParametricEstimates, CombatError> {
+    let mut gamma_star = estimate_gamma_hat(&state.s_data, levels, ref_level)?;
+    let delta_star = DMatrix::from_element(levels.len(), state.s_data.ncols(), 1.0);
+
+    if let Some(ref_level) = ref_level {
+        for feature in 0..state.s_data.ncols() {
+            gamma_star[(ref_level, feature)] = 0.0;
+        }
+    }
+
+    Ok(ParametricEstimates {
+        gamma_star,
+        delta_star,
+    })
+}
+
 pub(crate) fn estimate_gamma_hat(
     s_data: &DMatrix<f64>,
     levels: &BatchLevels,

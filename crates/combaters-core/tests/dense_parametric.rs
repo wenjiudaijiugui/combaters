@@ -206,6 +206,87 @@ fn nonparametric_supports_covariates_and_preserves_reference_batch() {
 }
 
 #[test]
+fn zero_variance_features_are_reinserted_unchanged() {
+    let values = [
+        4.0, 99.0, 7.0, 5.0, 99.0, 8.0, 6.5, 99.0, 8.8, 11.0, 99.0, 2.0, 12.5, 99.0, 2.5, 13.0,
+        99.0, 3.0,
+    ];
+    let batch = [10, 10, 10, 20, 20, 20];
+    let input = CombatDenseInput {
+        values: &values,
+        n_samples: 6,
+        n_features: 3,
+        batch: &batch,
+        covariates: None,
+    };
+
+    let result = combat_dense(input, CombatDenseOptions::default()).unwrap();
+
+    assert_eq!(result.report.zero_variance_features, vec![1]);
+    for sample in 0..6 {
+        assert_eq!(result.adjusted[sample * 3 + 1], values[sample * 3 + 1]);
+    }
+    assert!(
+        result
+            .adjusted
+            .iter()
+            .zip(values.iter())
+            .any(|(adjusted, original)| (adjusted - original).abs() > 1e-8)
+    );
+}
+
+#[test]
+fn all_zero_variance_features_return_original_matrix() {
+    let values = [1.0, 5.0, 1.0, 5.0, 3.0, 7.0, 3.0, 7.0];
+    let batch = [10, 10, 20, 20];
+    let input = CombatDenseInput {
+        values: &values,
+        n_samples: 4,
+        n_features: 2,
+        batch: &batch,
+        covariates: None,
+    };
+
+    let result = combat_dense(input, CombatDenseOptions::default()).unwrap();
+
+    assert_eq!(result.adjusted, values);
+    assert_eq!(result.report.zero_variance_features, vec![0, 1]);
+    assert!(result.report.effective_mean_only);
+}
+
+#[test]
+fn single_feature_skips_eb_and_uses_mean_only_adjustment() {
+    let values = [1.0, 3.0, 7.0, 9.0];
+    let batch = [10, 10, 20, 20];
+    let input = CombatDenseInput {
+        values: &values,
+        n_samples: 4,
+        n_features: 1,
+        batch: &batch,
+        covariates: None,
+    };
+
+    let result = combat_dense(input, CombatDenseOptions::default()).unwrap();
+    let nonparametric_result = combat_dense(
+        input,
+        CombatDenseOptions {
+            par_prior: false,
+            ..CombatDenseOptions::default()
+        },
+    )
+    .unwrap();
+
+    for result in [result, nonparametric_result] {
+        assert_eq!(result.n_features, 1);
+        assert_eq!(result.report.zero_variance_features, Vec::<usize>::new());
+        assert!(result.report.effective_mean_only);
+        for (actual, expected) in result.adjusted.iter().zip([4.0, 6.0, 4.0, 6.0]) {
+            assert!((actual - expected).abs() <= 1e-10);
+        }
+    }
+}
+
+#[test]
 fn mean_only_adjusts_batch_means_without_scale_adjustment() {
     let values = [
         1.0, 10.0, 100.0, 3.0, 14.0, 103.0, 5.0, 20.0, 109.0, 7.0, 24.0, 112.0,

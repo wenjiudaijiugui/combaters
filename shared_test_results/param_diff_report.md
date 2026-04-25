@@ -22,3 +22,11 @@
 - **supported**: `par_prior=True` and `par_prior=False`, `mean_only` true or false, optional original-id `ref_batch`, optional numeric `mod`
 - **documented difference**: `prior.plots`, `BPPARAM`
 - **unsupported**: plotting/parallel control
+
+## Degenerate Input Policy
+
+| Case | combaters behavior |
+|------|--------------------|
+| zero-variance feature inside any multi-sample batch | copy that feature back unchanged and report its zero-based index in `zero_variance_features` |
+| all features are zero-variance/unadjustable | return the original matrix and report all unadjustable feature indexes instead of failing |
+| exactly one adjustable feature remains | skip empirical Bayes prior fitting and use unshrunken mean-only location adjustment for that feature |
