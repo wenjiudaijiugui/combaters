@@ -6,9 +6,9 @@
 |-----------|-------|--------|
 | par_prior | True or False | parametric fixture parity for True; non-parametric EB supported |
 | mean_only | True or False | supported |
-| ref_batch | None or original batch id | supported |
+| ref_batch | None or original batch label | supported |
 | mod | numeric matrix or None | supported |
-| batch | int64 vector | exact parity |
+| batch | R factor-like labels | supports strings, object/category labels, negative integers, and the existing non-negative int64 fast path |
 | dat / values missing entries | NA / missing values | supported for `values`; missing coordinates are ignored during fitting and preserved in output |
 
 ## Unsupported Parameters
@@ -20,7 +20,7 @@
 
 ## Classification
 
-- **supported**: `par_prior=True` and `par_prior=False`, `mean_only` true or false, optional original-id `ref_batch`, optional numeric finite `mod`, and NA-aware `values`
+- **supported**: `par_prior=True` and `par_prior=False`, `mean_only` true or false, optional original-label `ref_batch`, optional numeric finite `mod`, factor-like `batch` labels, and NA-aware `values`
 - **documented difference**: `prior.plots`, `BPPARAM`
 - **unsupported**: plotting and user-supplied parallel backends
 - **internal behavior**: Rust core keeps small matrices serial and enables Rayon for larger matrices at the documented threshold; `COMBATERS_PARALLEL=off|parallel|auto` is an operational escape hatch, not an API compatibility surface

@@ -11,16 +11,18 @@ import numpy as np
 from combaters import combat
 
 values = np.asarray(..., dtype=np.float64).reshape((n_samples, n_features))
-batch = np.asarray(..., dtype=np.int64)
+batch = np.asarray(...)
 mod = np.asarray(..., dtype=np.float64).reshape((n_samples, n_covariates))
 
 result = combat(values, batch, mod=mod, par_prior=True, mean_only=False, ref_batch=None)
 adjusted = result["adjusted"]
 ```
 
-`combat` accepts array-like `values` with shape `(n_samples, n_features)`, including lists or tuples, `float32` or integer arrays, and Fortran-order or strided arrays. The Python wrapper converts `values` and optional `mod` to C-contiguous `float64` arrays, and converts integer `batch` labels, including `int32` or strided arrays, to a contiguous `int64` vector with length `n_samples`. `values` may contain `np.nan`/NA entries, which are ignored during fitting and preserved as missing values in the adjusted matrix. Infinite values in `values` are rejected. The optional `mod` matrix must be finite. Batch labels must be integers at this layer, and negative batch ids are rejected.
+`combat` accepts array-like `values` with shape `(n_samples, n_features)`, including lists or tuples, `float32` or integer arrays, and Fortran-order or strided arrays. The Python wrapper converts `values` and optional `mod` to C-contiguous `float64` arrays. `values` may contain `np.nan`/NA entries, which are ignored during fitting and preserved as missing values in the adjusted matrix. Infinite values in `values` are rejected. The optional `mod` matrix must be finite.
 
-The current implementation covers dense ComBat with parametric (`par_prior=True`) and non-parametric (`par_prior=False`) empirical Bayes, `mean_only` true or false, optional `ref_batch` by original batch id, optional numeric `mod`, and NA-aware fitting for missing `values`. If any batch has a single sample, ComBat automatically uses effective mean-only adjustment. With `ref_batch`, reference-batch rows are returned unchanged. Features must still have enough observed values to fit the design and, when scale adjustment is enabled, at least two observed values per batch and feature. `prior.plots` and `BPPARAM` are not exposed.
+`batch` is a one-dimensional vector with length `n_samples`; the Python API accepts R factor-like labels such as strings, object/category labels, negative integers, and strided/integer arrays. Non-negative contiguous `int64` batches keep the direct Rust fast path. Other labels are factorized in Python to compact internal ids before entering the Rust core. `ref_batch` uses the same original label type as `batch`.
+
+The current implementation covers dense ComBat with parametric (`par_prior=True`) and non-parametric (`par_prior=False`) empirical Bayes, `mean_only` true or false, optional `ref_batch` by original batch label, optional numeric `mod`, and NA-aware fitting for missing `values`. If any batch has a single sample, ComBat automatically uses effective mean-only adjustment. With `ref_batch`, reference-batch rows are returned unchanged. Features must still have enough observed values to fit the design and, when scale adjustment is enabled, at least two observed values per batch and feature. `prior.plots` and `BPPARAM` are not exposed.
 
 Degenerate feature handling is user-facing and reported. Features with zero variance inside any multi-sample batch are treated as unadjustable, copied back unchanged, and listed by zero-based column index in `result["report"]["zero_variance_features"]`. If every feature is unadjustable, `adjusted` is the original matrix and no hard failure is raised. If exactly one feature remains adjustable, empirical Bayes prior fitting is skipped and that feature uses unshrunken mean-only location adjustment; `result["report"]["effective_mean_only"]` is `True`.
 

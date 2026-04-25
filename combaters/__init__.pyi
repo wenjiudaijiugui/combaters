@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from numpy.typing import ArrayLike
 
 
@@ -9,5 +11,5 @@ def combat(
     mod: ArrayLike | None = None,
     par_prior: bool = True,
     mean_only: bool = False,
-    ref_batch: int | None = None,
+    ref_batch: Any | None = None,
 ) -> dict[str, object]: ...

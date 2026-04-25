@@ -253,6 +253,65 @@ def test_combat_ref_batch_preserves_reference_rows() -> None:
     assert result["report"]["effective_mean_only"] is False
 
 
+def test_combat_accepts_string_batch_labels_and_ref_batch() -> None:
+    from combaters import combat
+
+    matrix = balanced_matrix()
+    batch = np.asarray(["site_a", "site_a", "site_a", "site_b", "site_b", "site_b"])
+
+    result = combat(matrix, batch, ref_batch="site_b")
+    expected = combat(
+        matrix,
+        np.asarray([0, 0, 0, 1, 1, 1], dtype=np.int64),
+        ref_batch=1,
+    )
+
+    np.testing.assert_allclose(result["adjusted"], expected["adjusted"])
+    np.testing.assert_array_equal(result["adjusted"][3:], matrix[3:])
+
+
+def test_combat_accepts_negative_int_batch_labels_and_ref_batch() -> None:
+    from combaters import combat
+
+    matrix = balanced_matrix()
+    batch = np.asarray([-4, -4, -4, 7, 7, 7], dtype=np.int64)
+
+    result = combat(matrix, batch, ref_batch=-4)
+    expected = combat(
+        matrix,
+        np.asarray([0, 0, 0, 1, 1, 1], dtype=np.int64),
+        ref_batch=0,
+    )
+
+    np.testing.assert_allclose(result["adjusted"], expected["adjusted"])
+    np.testing.assert_array_equal(result["adjusted"][:3], matrix[:3])
+
+
+def test_combat_rejects_missing_reference_label() -> None:
+    from combaters import combat
+
+    batch = np.asarray(["site_a", "site_a", "site_a", "site_b", "site_b", "site_b"])
+
+    with pytest.raises(ValueError, match="missing reference batch"):
+        combat(balanced_matrix(), batch, ref_batch="missing")
+
+
+def test_combat_preserves_nonnegative_int64_sparse_label_behavior() -> None:
+    from combaters import combat
+
+    matrix = balanced_matrix()
+
+    result = combat(matrix, balanced_batch(), ref_batch=20)
+    expected = combat(
+        matrix,
+        np.asarray([0, 0, 0, 1, 1, 1], dtype=np.int64),
+        ref_batch=1,
+    )
+
+    np.testing.assert_allclose(result["adjusted"], expected["adjusted"])
+    np.testing.assert_array_equal(result["adjusted"][3:], matrix[3:])
+
+
 def test_combat_singleton_batch_uses_effective_mean_only() -> None:
     from combaters import combat
 
@@ -349,14 +408,16 @@ def test_combat_accepts_strided_int32_batch() -> None:
     np.testing.assert_allclose(result["adjusted"], expected["adjusted"])
 
 
-def test_combat_rejects_negative_batch_id() -> None:
+def test_combat_accepts_negative_batch_id() -> None:
     from combaters import combat
 
     batch = balanced_batch()
     batch[1] = -1
 
-    with pytest.raises(ValueError, match="non-negative"):
-        combat(balanced_matrix(), batch)
+    result = combat(balanced_matrix(), batch)
+
+    assert result["adjusted"].shape == (6, 4)
+    assert np.all(np.isfinite(result["adjusted"]))
 
 
 def test_combat_rejects_infinite_values() -> None:
