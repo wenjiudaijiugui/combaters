@@ -1,0 +1,14 @@
+{
+  "test": "bladderbatch_default",
+  "n_samples": 57,
+  "n_features": 22283,
+  "n_batches": 5,
+  "atol_target": 1e-08,
+  "atol_used": 1e-07,
+  "max_abs": 6.927791673660977e-14,
+  "max_rel": 6.177187076267155e-15,
+  "rmse": 5.439229579919182e-15,
+  "p99_abs": 3.019806626980426e-14,
+  "shape_match": true,
+  "pass": true
+}

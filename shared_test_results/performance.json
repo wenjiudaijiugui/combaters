@@ -1,0 +1,106 @@
+{
+  "P1": {
+    "matrix": {
+      "samples": 100,
+      "features": 1000,
+      "batches": 3
+    },
+    "combaters": {
+      "median_sec": 0.0029583709983853623,
+      "min_sec": 0.0028900600009365007,
+      "max_sec": 0.0029658869971171953,
+      "all_sec": [
+        0.0029658869971171953,
+        0.0029583709983853623,
+        0.0029144680011086166,
+        0.002963181999803055,
+        0.0028900600009365007
+      ]
+    },
+    "environment": {
+      "r_version": "R version 4.5.3 (2026-03-11)",
+      "sva_version": "3.58.0",
+      "bioc_version": "3.22",
+      "combaters_version": "0.1.0",
+      "threads": 1
+    }
+  },
+  "P2": {
+    "matrix": {
+      "samples": 500,
+      "features": 5000,
+      "batches": 5
+    },
+    "combaters": {
+      "median_sec": 0.14323831899673678,
+      "min_sec": 0.142746861994965,
+      "max_sec": 0.14568893600517185,
+      "all_sec": [
+        0.14568893600517185,
+        0.1431120799970813,
+        0.14323831899673678,
+        0.14324513499741443,
+        0.142746861994965
+      ]
+    },
+    "environment": {
+      "r_version": "R version 4.5.3 (2026-03-11)",
+      "sva_version": "3.58.0",
+      "bioc_version": "3.22",
+      "combaters_version": "0.1.0",
+      "threads": 1
+    }
+  },
+  "P3": {
+    "matrix": {
+      "samples": 1000,
+      "features": 10000,
+      "batches": 5
+    },
+    "combaters": {
+      "median_sec": 0.726964985995437,
+      "min_sec": 0.7126890690051368,
+      "max_sec": 0.7778859840036603,
+      "all_sec": [
+        0.726964985995437,
+        0.7481541770030162,
+        0.7778859840036603,
+        0.7126890690051368,
+        0.7249101490015164
+      ]
+    },
+    "environment": {
+      "r_version": "R version 4.5.3 (2026-03-11)",
+      "sva_version": "3.58.0",
+      "bioc_version": "3.22",
+      "combaters_version": "0.1.0",
+      "threads": 1
+    }
+  },
+  "P4": {
+    "matrix": {
+      "samples": 2000,
+      "features": 20000,
+      "batches": 8
+    },
+    "combaters": {
+      "median_sec": 4.178592006996041,
+      "min_sec": 4.132030840002699,
+      "max_sec": 4.206171236000955,
+      "all_sec": [
+        4.181502382998588,
+        4.178592006996041,
+        4.132030840002699,
+        4.168424766998214,
+        4.206171236000955
+      ]
+    },
+    "environment": {
+      "r_version": "R version 4.5.3 (2026-03-11)",
+      "sva_version": "3.58.0",
+      "bioc_version": "3.22",
+      "combaters_version": "0.1.0",
+      "threads": 1
+    }
+  }
+}

@@ -1,0 +1,17 @@
+[package]
+name = "combaters-core"
+version = "0.1.0"
+edition = "2024"
+description = "Dense finite ComBat core for biological batch-effect correction"
+license = "MIT"
+
+[lib]
+name = "combaters_core"
+
+[dependencies]
+nalgebra = "0.34.2"
+thiserror = "2.0.18"
+
+[dev-dependencies]
+approx = "0.5.1"
+csv = "1.4.0"

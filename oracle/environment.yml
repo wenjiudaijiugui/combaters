@@ -1,0 +1,9 @@
+name: combat-ref
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - r-base=4.5
+  - bioconductor-sva=3.58.0
+  - bioconductor-biocparallel
+  - r-biocmanager
