@@ -22,6 +22,17 @@ def combat(
     formula: str | None = None,
 ) -> dict[str, object]:
     """Run dense ComBat after preparing Python-friendly inputs."""
+    if _is_pandas_dataframe(values):
+        return combat_frame(
+            values,
+            batch,
+            mod=mod,
+            par_prior=par_prior,
+            mean_only=mean_only,
+            ref_batch=ref_batch,
+            formula=formula,
+        )
+
     values_array = _float64_matrix("values", values)
     batch_array, ref_arg, levels = _prepare_batch(batch, ref_batch)
     mod_array = _prepare_mod(mod, formula)
@@ -31,9 +42,76 @@ def combat(
     return result
 
 
+def combat_frame(
+    values: Any,
+    batch: Any,
+    mod: Any | None = None,
+    par_prior: bool = True,
+    mean_only: bool = False,
+    ref_batch: object | None = None,
+    *,
+    formula: str | None = None,
+) -> dict[str, object]:
+    """Run ComBat on a pandas DataFrame and return adjusted values as a DataFrame."""
+    pd = _require_pandas()
+    if not isinstance(values, pd.DataFrame):
+        raise TypeError("combat_frame requires values to be a pandas DataFrame")
+
+    _check_index_matches(values.index, batch, "batch")
+    if _is_pandas_dataframe(mod) or _is_pandas_series(mod):
+        _check_index_matches(values.index, mod, "mod")
+
+    result = combat(
+        _float64_matrix("values", values),
+        batch,
+        mod=mod,
+        par_prior=par_prior,
+        mean_only=mean_only,
+        ref_batch=ref_batch,
+        formula=formula,
+    )
+    result["adjusted"] = pd.DataFrame(
+        result["adjusted"],
+        index=values.index,
+        columns=values.columns,
+    )
+    return result
+
+
+def combat_anndata(
+    adata: Any,
+    batch: str | Any,
+    *,
+    layer: str | None = None,
+    mod: Any | None = None,
+    par_prior: bool = True,
+    mean_only: bool = False,
+    ref_batch: object | None = None,
+    formula: str | None = None,
+) -> dict[str, object]:
+    """Run ComBat on a duck-typed AnnData object without mutating it."""
+    values = _anndata_values(adata, layer)
+    batch_values = _anndata_batch(adata, batch)
+    result = combat(
+        values,
+        batch_values,
+        mod=mod,
+        par_prior=par_prior,
+        mean_only=mean_only,
+        ref_batch=ref_batch,
+        formula=formula,
+    )
+    if isinstance(result["adjusted"], np.ndarray):
+        frame = _anndata_frame(result["adjusted"], adata)
+        if frame is not None:
+            result["adjusted"] = frame
+    return result
+
+
 def _float64_matrix(name: str, value: npt.ArrayLike) -> np.ndarray:
+    raw = value.toarray() if _is_scipy_sparse(value) else value
     try:
-        array = np.asarray(value, dtype=np.float64)
+        array = np.asarray(raw, dtype=np.float64)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{name} must be a 2D float64 array-like") from exc
     if array.ndim != 2:
@@ -139,7 +217,9 @@ def _prepare_dataframe_like_mod(mod: object) -> np.ndarray:
 
 
 def _to_numpy(value: object) -> np.ndarray:
-    if hasattr(value, "to_numpy"):
+    if _is_scipy_sparse(value):
+        raw = value.toarray()  # type: ignore[attr-defined]
+    elif hasattr(value, "to_numpy"):
         raw = value.to_numpy()  # type: ignore[attr-defined]
     else:
         raw = np.asarray(value)
@@ -217,4 +297,79 @@ def _restore_report_labels(result: dict[str, Any], levels: list[object]) -> None
     report["singleton_batches"] = [levels[int(level)] for level in singleton_batches]
 
 
-__all__ = ["combat"]
+def _check_index_matches(index: Any, values: Any, name: str) -> None:
+    other_index = getattr(values, "index", None)
+    if other_index is not None and hasattr(other_index, "equals"):
+        if len(other_index) == len(index) and not other_index.equals(index):
+            raise ValueError(f"{name} index must match values index")
+
+
+def _anndata_values(adata: Any, layer: str | None) -> Any:
+    if layer is None:
+        try:
+            return adata.X
+        except AttributeError as err:
+            raise TypeError("combat_anndata requires an AnnData-like object with X") from err
+    try:
+        return adata.layers[layer]
+    except AttributeError as err:
+        raise TypeError("combat_anndata layer input requires adata.layers") from err
+    except KeyError as err:
+        raise KeyError(f"AnnData layer {layer!r} not found") from err
+
+
+def _anndata_batch(adata: Any, batch: str | Any) -> Any:
+    if not isinstance(batch, str):
+        return batch
+    try:
+        return adata.obs[batch]
+    except AttributeError as err:
+        raise TypeError("string batch input requires adata.obs") from err
+    except KeyError as err:
+        raise KeyError(f"AnnData obs column {batch!r} not found") from err
+
+
+def _anndata_frame(adjusted: np.ndarray, adata: Any) -> Any | None:
+    try:
+        pd = _require_pandas()
+    except ImportError:
+        return None
+    index = getattr(adata, "obs_names", None)
+    columns = getattr(adata, "var_names", None)
+    if index is None or columns is None:
+        return None
+    return pd.DataFrame(adjusted, index=index, columns=columns)
+
+
+def _is_pandas_dataframe(values: Any) -> bool:
+    return _is_type_from_module(values, "pandas.", "DataFrame")
+
+
+def _is_pandas_series(values: Any) -> bool:
+    return _is_type_from_module(values, "pandas.", "Series")
+
+
+def _is_scipy_sparse(values: Any) -> bool:
+    return (
+        values is not None
+        and type(values).__module__.startswith("scipy.sparse")
+        and hasattr(values, "toarray")
+    )
+
+
+def _is_type_from_module(values: Any, module_prefix: str, type_name: str) -> bool:
+    module = type(values).__module__
+    return (
+        values is not None
+        and type(values).__name__ == type_name
+        and (module == module_prefix.rstrip(".") or module.startswith(module_prefix))
+    )
+
+
+def _require_pandas() -> Any:
+    import pandas as pd
+
+    return pd
+
+
+__all__ = ["combat", "combat_anndata", "combat_frame"]

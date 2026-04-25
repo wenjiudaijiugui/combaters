@@ -25,6 +25,10 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 
+[project.optional-dependencies]
+ecosystem = ["pandas>=1.5", "scipy>=1.9"]
+test = ["pytest>=7", "pandas>=1.5", "scipy>=1.9"]
+
 [tool.maturin]
 manifest-path = "Cargo.toml"
 module-name = "combaters._combaters"

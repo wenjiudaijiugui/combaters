@@ -30,6 +30,30 @@ result = combat(values, batch, mod=metadata, formula="~ age + C(treatment)")
 
 The Rust core still receives a numeric covariate matrix. Formula support is optional and does not make pandas or patsy required runtime dependencies for the ndarray path.
 
+Pandas `DataFrame` input is supported through either `combat_frame(...)` or `combat(...)`. The returned result keeps the existing dictionary shape, and `result["adjusted"]` is a `DataFrame` with the original index and columns:
+
+```python
+from combaters import combat_frame
+
+result = combat_frame(values_df, batch_series)
+adjusted_df = result["adjusted"]
+```
+
+Install `combaters[ecosystem]` to pull in the optional pandas and SciPy helpers.
+
+SciPy sparse matrices are accepted by `combat(...)` and are explicitly densified to a new C-contiguous `float64` NumPy array before the Rust core runs. This makes the sparse-to-dense copy intentional and predictable, but it can require substantial memory for large matrices.
+
+AnnData-like objects can use the duck-typed helper without mutating the object:
+
+```python
+from combaters import combat_anndata
+
+result = combat_anndata(adata, "batch", layer=None)
+adjusted = result["adjusted"]
+```
+
+`combat_anndata` reads `adata.X` by default, or `adata.layers[layer]` when a layer is supplied. A string `batch` is read from `adata.obs[batch]`.
+
 The current implementation covers dense ComBat with parametric (`par_prior=True`) and non-parametric (`par_prior=False`) empirical Bayes, `mean_only` true or false, optional `ref_batch` by original batch label, optional `mod`, and NA-aware fitting for missing `values`. If any batch has a single sample, ComBat automatically uses effective mean-only adjustment. With `ref_batch`, reference-batch rows are returned unchanged. Features must still have enough observed values to fit the design and, when scale adjustment is enabled, at least two observed values per batch and feature. `prior.plots` and `BPPARAM` are not exposed.
 
 Degenerate feature handling is user-facing and reported. Features with zero variance inside any multi-sample batch are treated as unadjustable, copied back unchanged, and listed by zero-based column index in `result["report"]["zero_variance_features"]`. If every feature is unadjustable, `adjusted` is the original matrix and no hard failure is raised. If exactly one feature remains adjustable, empirical Bayes prior fitting is skipped and that feature uses unshrunken mean-only location adjustment; `result["report"]["effective_mean_only"]` is `True`.
