@@ -129,8 +129,8 @@ fn rejects_one_batch() {
 }
 
 #[test]
-fn rejects_non_finite_dense_value_with_coordinates() {
-    let values = [1.0, 2.0, 3.0, f64::NAN, 5.0, 6.0];
+fn rejects_infinite_dense_value_with_coordinates() {
+    let values = [1.0, 2.0, 3.0, f64::INFINITY, 5.0, 6.0];
     let batch = [0, 1, 0];
     let input = CombatDenseInput {
         values: &values,

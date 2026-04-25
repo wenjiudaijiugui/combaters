@@ -9,6 +9,7 @@
 | ref_batch | None or original batch id | supported |
 | mod | numeric matrix or None | supported |
 | batch | int64 vector | exact parity |
+| dat / values missing entries | NA / missing values | supported for `values`; missing coordinates are ignored during fitting and preserved in output |
 
 ## Unsupported Parameters
 
@@ -19,6 +20,10 @@
 
 ## Classification
 
-- **supported**: `par_prior=True` and `par_prior=False`, `mean_only` true or false, optional original-id `ref_batch`, optional numeric `mod`
+- **supported**: `par_prior=True` and `par_prior=False`, `mean_only` true or false, optional original-id `ref_batch`, optional numeric finite `mod`, and NA-aware `values`
 - **documented difference**: `prior.plots`, `BPPARAM`
 - **unsupported**: plotting/parallel control
+
+## Missing Data Notes
+
+`combaters` follows the `sva::ComBat` NA-aware branch for the core data matrix: beta and gamma fits drop missing responses per feature, pooled and batch variances ignore missing values, and parametric/non-parametric posterior updates count only observed standardized values. Infinite data values remain invalid. The optional `mod` matrix is still required to be finite.

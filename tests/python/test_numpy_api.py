@@ -62,6 +62,36 @@ def test_combat_returns_numpy_adjusted_matrix() -> None:
     }
 
 
+def test_combat_accepts_nan_values_and_preserves_missing_positions() -> None:
+    from combaters import combat
+
+    matrix = balanced_matrix()
+    matrix[1, 2] = np.nan
+    matrix[4, 0] = np.nan
+
+    result = combat(matrix, balanced_batch())
+    adjusted = result["adjusted"]
+
+    assert adjusted.shape == matrix.shape
+    np.testing.assert_array_equal(np.isnan(adjusted), np.isnan(matrix))
+    assert np.all(np.isfinite(adjusted[~np.isnan(adjusted)]))
+
+
+def test_combat_par_prior_false_accepts_nan_values() -> None:
+    from combaters import combat
+
+    matrix = balanced_matrix()
+    matrix[1, 2] = np.nan
+    matrix[4, 0] = np.nan
+
+    result = combat(matrix, balanced_batch(), par_prior=False)
+    adjusted = result["adjusted"]
+
+    assert adjusted.shape == matrix.shape
+    np.testing.assert_array_equal(np.isnan(adjusted), np.isnan(matrix))
+    assert np.all(np.isfinite(adjusted[~np.isnan(adjusted)]))
+
+
 def test_combat_accepts_mod_matrix() -> None:
     from combaters import combat
 
@@ -217,3 +247,13 @@ def test_combat_rejects_negative_batch_id() -> None:
 
     with pytest.raises(ValueError, match="non-negative"):
         combat(balanced_matrix(), batch)
+
+
+def test_combat_rejects_infinite_values() -> None:
+    from combaters import combat
+
+    matrix = balanced_matrix()
+    matrix[1, 2] = np.inf
+
+    with pytest.raises(ValueError, match="non-finite dense value"):
+        combat(matrix, balanced_batch())

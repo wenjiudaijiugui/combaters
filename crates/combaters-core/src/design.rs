@@ -62,11 +62,11 @@ pub(crate) fn fit_design(
     ref_level: Option<usize>,
 ) -> Result<DesignFit, CombatError> {
     let design = build_design(y.nrows(), levels, covariates, ref_level);
-    let xtx = design.transpose() * &design;
-    let Some(xtx_inv) = xtx.try_inverse() else {
-        return Err(CombatError::SingularDesign);
+    let beta = if y.iter().any(|value| value.is_nan()) {
+        fit_coefficients_by_feature(y, &design)?
+    } else {
+        fit_complete_coefficients(y, &design)?
     };
-    let beta = xtx_inv * design.transpose() * y;
     let fitted = &design * &beta;
 
     let mut covariate_design = design.clone();
@@ -82,6 +82,74 @@ pub(crate) fn fit_design(
         fitted,
         covariate_fitted,
     })
+}
+
+pub(crate) fn fit_complete_coefficients(
+    y: &DMatrix<f64>,
+    design: &DMatrix<f64>,
+) -> Result<DMatrix<f64>, CombatError> {
+    let xtx = design.transpose() * design;
+    let Some(xtx_inv) = xtx.try_inverse() else {
+        return Err(CombatError::SingularDesign);
+    };
+    Ok(xtx_inv * design.transpose() * y)
+}
+
+pub(crate) fn fit_coefficients_by_feature(
+    y: &DMatrix<f64>,
+    design: &DMatrix<f64>,
+) -> Result<DMatrix<f64>, CombatError> {
+    let n_samples = y.nrows();
+    let n_coefficients = design.ncols();
+    let n_features = y.ncols();
+    let mut beta = DMatrix::zeros(n_coefficients, n_features);
+
+    for feature in 0..n_features {
+        let mut observed = 0;
+        let mut xtx = DMatrix::<f64>::zeros(n_coefficients, n_coefficients);
+        let mut xty = DMatrix::<f64>::zeros(n_coefficients, 1);
+
+        for sample in 0..n_samples {
+            let value = y[(sample, feature)];
+            if value.is_nan() {
+                continue;
+            }
+            if !value.is_finite() {
+                return Err(CombatError::NumericalFailure {
+                    reason: "design response contains an infinite value".to_string(),
+                });
+            }
+
+            observed += 1;
+            for left in 0..n_coefficients {
+                let left_value = design[(sample, left)];
+                xty[(left, 0)] += left_value * value;
+                for right in 0..n_coefficients {
+                    xtx[(left, right)] += left_value * design[(sample, right)];
+                }
+            }
+        }
+
+        if observed < n_coefficients {
+            return Err(CombatError::SingularDesign);
+        }
+
+        let Some(xtx_inv) = xtx.try_inverse() else {
+            return Err(CombatError::SingularDesign);
+        };
+        let feature_beta = xtx_inv * xty;
+        for coefficient in 0..n_coefficients {
+            let value = feature_beta[(coefficient, 0)];
+            if !value.is_finite() {
+                return Err(CombatError::NumericalFailure {
+                    reason: "design fit produced a non-finite coefficient".to_string(),
+                });
+            }
+            beta[(coefficient, feature)] = value;
+        }
+    }
+
+    Ok(beta)
 }
 
 #[cfg(test)]
@@ -171,6 +239,20 @@ mod tests {
         assert_eq!(fit.beta[(0, 1)], 12.0);
         assert_eq!(fit.beta[(1, 0)], 6.0);
         assert_eq!(fit.beta[(1, 1)], 22.0);
+    }
+
+    #[test]
+    fn no_covariate_beta_ignores_missing_responses_by_feature() {
+        let levels = BatchLevels::from_ids(&[0, 0, 1, 1], 4).unwrap();
+        let y = DMatrix::from_row_slice(4, 2, &[1.0, 10.0, 3.0, 14.0, 5.0, 20.0, f64::NAN, 24.0]);
+
+        let fit = fit_no_covariate_design(&y, &levels).unwrap();
+
+        assert_eq!(fit.beta[(0, 0)], 2.0);
+        assert_eq!(fit.beta[(1, 0)], 5.0);
+        assert_eq!(fit.beta[(0, 1)], 12.0);
+        assert_eq!(fit.beta[(1, 1)], 22.0);
+        assert_eq!(fit.fitted[(3, 0)], 5.0);
     }
 
     #[test]
