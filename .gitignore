@@ -1,7 +1,21 @@
+# Release keep set: tracked source, package metadata, docs, and fixtures.
+# Keep: Cargo.toml, Cargo.lock, pyproject.toml, uv.lock, README.md.
+# Keep: src/, crates/, combaters/, tests/, oracle/.
+
+# Build and packaging outputs: regenerate locally, do not publish from git.
 /target/
 /dist/
+
+# Local Python environments and caches.
 /.venv/
 __pycache__/
 *.egg-info/
 .pytest_cache/
+
+# Native extension built in-place by local maturin/develop runs.
 /combaters/*.so
+
+# External test returns and planning scratch are not part of the release tree.
+/shared_test_results/
+/shared-test-returns/
+/docs/superpowers/

@@ -21,7 +21,66 @@ def combat(
     *,
     formula: str | None = None,
 ) -> dict[str, object]:
-    """Run dense ComBat after preparing Python-friendly inputs."""
+    """Run ComBat batch correction on a samples x features matrix.
+
+    Parameters
+    ----------
+    values : array-like or pandas.DataFrame
+        Dense numeric data with shape ``(n_samples, n_features)``. Rows are
+        samples and columns are features. Lists, tuples, NumPy arrays, and
+        SciPy sparse matrices are accepted; sparse inputs are densified before
+        calling the Rust core. A pandas ``DataFrame`` is routed through
+        :func:`combat_frame` so adjusted values keep the original index and
+        columns.
+    batch : array-like
+        One-dimensional batch labels with length ``n_samples``. Non-negative
+        integer labels use the direct Rust path; strings, negative integers,
+        and other factor-like labels are compacted in Python.
+    mod : array-like, pandas object, or None, default=None
+        Optional sample covariates with ``n_samples`` rows. Numeric columns are
+        used directly. Non-numeric DataFrame-like columns are dummy-coded with
+        the first observed level dropped.
+    par_prior : bool, default=True
+        Use parametric empirical Bayes when ``True`` and non-parametric
+        empirical Bayes when ``False``.
+    mean_only : bool, default=False
+        Adjust only batch location effects when ``True``. Singleton batches and
+        some degenerate feature cases can also force effective mean-only
+        behavior, reported in ``result["report"]``.
+    ref_batch : object or None, default=None
+        Optional reference batch, expressed with the original ``batch`` label.
+        Rows in the reference batch are returned unchanged.
+    formula : str or None, default=None
+        Optional patsy formula for building ``mod``. Formula support requires
+        ``mod`` data and the optional ``patsy`` package.
+
+    Returns
+    -------
+    dict
+        Dictionary with ``"adjusted"``, ``"n_samples"``, ``"n_features"``, and
+        ``"report"``. ``"adjusted"`` is a ``float64`` NumPy array for array-like
+        inputs, or a pandas ``DataFrame`` when ``values`` is a DataFrame.
+
+    Notes
+    -----
+    This is the main Python entry point. ``combat_frame`` and
+    ``combat_anndata`` are convenience layers around it. AnnData-like objects
+    should be passed to ``combat_anndata``. Missing values in ``values`` are
+    preserved, while infinite values are rejected. The R/Bioconductor
+    ``prior.plots`` and ``BPPARAM`` options are not exposed; plotting is not
+    implemented and parallel execution is controlled inside the Rust core.
+
+    Raises
+    ------
+    ValueError
+        If shapes do not match, inputs cannot be converted to numeric arrays,
+        a reference batch is missing, values are infinite, or covariates are
+        invalid.
+    ImportError
+        If ``formula`` is supplied but ``patsy`` is not installed.
+    RuntimeError
+        If the Rust core reports a singular design or numerical failure.
+    """
     if _is_pandas_dataframe(values):
         return combat_frame(
             values,
@@ -52,7 +111,57 @@ def combat_frame(
     *,
     formula: str | None = None,
 ) -> dict[str, object]:
-    """Run ComBat on a pandas DataFrame and return adjusted values as a DataFrame."""
+    """Run ComBat on a pandas DataFrame.
+
+    Parameters
+    ----------
+    values : pandas.DataFrame
+        Data matrix with shape ``(n_samples, n_features)``. Rows are samples
+        and columns are features. The adjusted matrix keeps this index and
+        column layout.
+    batch : array-like or pandas.Series
+        Batch labels with length ``n_samples``. If an index is present, it must
+        match ``values.index``.
+    mod : array-like, pandas object, or None, default=None
+        Optional sample covariates. Indexed pandas inputs must align with
+        ``values.index``. Non-numeric DataFrame-like columns are dummy-coded
+        unless ``formula`` is provided.
+    par_prior : bool, default=True
+        Use parametric empirical Bayes when ``True`` and non-parametric
+        empirical Bayes when ``False``.
+    mean_only : bool, default=False
+        Adjust only batch location effects when ``True``.
+    ref_batch : object or None, default=None
+        Optional reference batch, using the original batch label.
+    formula : str or None, default=None
+        Optional patsy formula for constructing covariates from ``mod``.
+
+    Returns
+    -------
+    dict
+        Dictionary with the standard ComBat result keys. ``"adjusted"`` is a
+        pandas ``DataFrame`` with the original ``values`` index and columns.
+
+    Notes
+    -----
+    This helper is only a DataFrame-preserving convenience layer. It delegates
+    numeric work to ``combat`` and does not mutate ``values``. SciPy sparse
+    matrices should be passed to ``combat`` directly. AnnData-like objects
+    should be passed to ``combat_anndata``. ``prior.plots`` and ``BPPARAM`` are
+    not exposed.
+
+    Raises
+    ------
+    TypeError
+        If ``values`` is not a pandas ``DataFrame``.
+    ValueError
+        If pandas indexes are misaligned or ComBat input validation fails.
+    ImportError
+        If pandas is unavailable, or if ``formula`` requires missing optional
+        ``patsy`` support.
+    RuntimeError
+        If the Rust core reports a singular design or numerical failure.
+    """
     pd = _require_pandas()
     if not isinstance(values, pd.DataFrame):
         raise TypeError("combat_frame requires values to be a pandas DataFrame")
@@ -89,7 +198,60 @@ def combat_anndata(
     ref_batch: object | None = None,
     formula: str | None = None,
 ) -> dict[str, object]:
-    """Run ComBat on a duck-typed AnnData object without mutating it."""
+    """Run ComBat on an AnnData-like object without mutating it.
+
+    Parameters
+    ----------
+    adata : AnnData-like
+        Object exposing ``X`` and optionally ``layers``, ``obs``,
+        ``obs_names``, and ``var_names``. The selected matrix must have shape
+        ``(n_samples, n_features)`` with rows as samples and columns as
+        features.
+    batch : str or array-like
+        Batch labels. A string is looked up in ``adata.obs[batch]``; otherwise
+        the supplied vector is used directly.
+    layer : str or None, default=None
+        Read ``adata.X`` when ``None`` or ``adata.layers[layer]`` when set.
+    mod : array-like, pandas object, or None, default=None
+        Optional sample covariates passed through to ``combat``.
+    par_prior : bool, default=True
+        Use parametric empirical Bayes when ``True`` and non-parametric
+        empirical Bayes when ``False``.
+    mean_only : bool, default=False
+        Adjust only batch location effects when ``True``.
+    ref_batch : object or None, default=None
+        Optional reference batch, using the original batch label.
+    formula : str or None, default=None
+        Optional patsy formula for constructing covariates from ``mod``.
+
+    Returns
+    -------
+    dict
+        Dictionary with the standard ComBat result keys. When pandas is
+        installed and ``adata`` exposes ``obs_names`` and ``var_names``,
+        ``"adjusted"`` is returned as a pandas ``DataFrame``; otherwise it is a
+        ``float64`` NumPy array.
+
+    Notes
+    -----
+    This is a duck-typed convenience layer around ``combat``. It reads from
+    ``adata`` but does not write adjusted values back. Sparse ``X`` or layer
+    matrices are accepted through ``combat`` and densified before correction.
+    ``prior.plots`` and ``BPPARAM`` are not exposed.
+
+    Raises
+    ------
+    TypeError
+        If required AnnData-like attributes are missing.
+    KeyError
+        If the requested layer or ``obs`` batch column is missing.
+    ValueError
+        If ComBat input validation fails.
+    ImportError
+        If ``formula`` requires missing optional ``patsy`` support.
+    RuntimeError
+        If the Rust core reports a singular design or numerical failure.
+    """
     values = _anndata_values(adata, layer)
     batch_values = _anndata_batch(adata, batch)
     result = combat(

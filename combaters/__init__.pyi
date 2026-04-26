@@ -1,10 +1,56 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol, TypedDict, TypeAlias, overload
 
-from numpy.typing import ArrayLike
+import numpy as np
+from numpy.typing import ArrayLike, NDArray
+
+_Float64Matrix: TypeAlias = NDArray[np.float64]
 
 
+class _DataFrameLike(Protocol):
+    index: Any
+    columns: Any
+
+
+class _AnnDataLike(Protocol):
+    X: Any
+
+
+class _CombatReport(TypedDict):
+    effective_mean_only: bool
+    singleton_batches: list[Any]
+    zero_variance_features: list[int]
+
+
+class _ArrayCombatResult(TypedDict):
+    adjusted: _Float64Matrix
+    n_samples: int
+    n_features: int
+    report: _CombatReport
+
+
+class _ObjectCombatResult(TypedDict):
+    adjusted: Any
+    n_samples: int
+    n_features: int
+    report: _CombatReport
+
+
+@overload
+def combat(
+    values: _DataFrameLike,
+    batch: Any,
+    mod: Any | None = None,
+    par_prior: bool = True,
+    mean_only: bool = False,
+    ref_batch: Any | None = None,
+    *,
+    formula: str | None = None,
+) -> _ObjectCombatResult: ...
+
+
+@overload
 def combat(
     values: ArrayLike,
     batch: ArrayLike,
@@ -14,11 +60,11 @@ def combat(
     ref_batch: Any | None = None,
     *,
     formula: str | None = None,
-) -> dict[str, object]: ...
+) -> _ArrayCombatResult: ...
 
 
 def combat_frame(
-    values: Any,
+    values: _DataFrameLike,
     batch: Any,
     mod: Any | None = None,
     par_prior: bool = True,
@@ -26,12 +72,12 @@ def combat_frame(
     ref_batch: Any | None = None,
     *,
     formula: str | None = None,
-) -> dict[str, object]: ...
+) -> _ObjectCombatResult: ...
 
 
 def combat_anndata(
-    adata: Any,
-    batch: str | Any,
+    adata: _AnnDataLike,
+    batch: str | ArrayLike,
     *,
     layer: str | None = None,
     mod: Any | None = None,
@@ -39,4 +85,4 @@ def combat_anndata(
     mean_only: bool = False,
     ref_batch: Any | None = None,
     formula: str | None = None,
-) -> dict[str, object]: ...
+) -> _ObjectCombatResult: ...

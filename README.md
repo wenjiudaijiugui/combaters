@@ -1,8 +1,25 @@
 # combaters
 
-`combaters` is a Rust-backed Python package for dense ComBat batch-effect correction with optional missing values in the data matrix.
+[![Python](https://img.shields.io/badge/python-3.10--3.14-blue)](https://www.python.org/)
+[![PyO3](https://img.shields.io/badge/PyO3-abi3--py310-orange)](https://pyo3.rs/)
+[![Rust](https://img.shields.io/badge/core-Rust-dea584)](https://www.rust-lang.org/)
+[![sva::ComBat](https://img.shields.io/badge/rewrite-sva%3A%3AComBat-4b8bbe)](https://bioconductor.org/packages/release/bioc/html/sva.html)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow)](https://opensource.org/licenses/MIT)
+
+[中文文档](README.zh-CN.md)
+
+`combaters` is a Rust/PyO3 rewrite of Bioconductor `sva::ComBat` for dense
+ComBat batch-effect correction in Python. It keeps the familiar ComBat behavior
+while moving the numerical core into Rust for predictable packaging, memory use,
+and runtime performance.
 
 The public matrix contract is row-major `samples x features`: `values[sample * n_features + feature]`.
+
+## Python Compatibility
+
+Release wheels target CPython 3.10 through 3.14. The extension is built with
+PyO3 `abi3-py310`; expand this range only after the pinned PyO3 version supports
+building against the newer Python minor version.
 
 ## Python API
 
@@ -18,19 +35,32 @@ result = combat(values, batch, mod=mod, par_prior=True, mean_only=False, ref_bat
 adjusted = result["adjusted"]
 ```
 
-`combat` accepts array-like `values` with shape `(n_samples, n_features)`, including lists or tuples, `float32` or integer arrays, and Fortran-order or strided arrays. The Python wrapper converts `values` and optional `mod` to C-contiguous `float64` arrays. `values` may contain `np.nan`/NA entries, which are ignored during fitting and preserved as missing values in the adjusted matrix. Infinite values in `values` are rejected. The optional `mod` matrix must be finite.
+All public matrix inputs use shape `(n_samples, n_features)`: rows are samples
+and columns are features. The Python wrapper converts numeric arrays to
+C-contiguous `float64` before entering the Rust core.
 
-`batch` is a one-dimensional vector with length `n_samples`; the Python API accepts R factor-like labels such as strings, object/category labels, negative integers, and strided/integer arrays. Non-negative contiguous `int64` batches keep the direct Rust fast path. Other labels are factorized in Python to compact internal ids before entering the Rust core. `ref_batch` uses the same original label type as `batch`.
+### Parameters
 
-Optional `mod` accepts the existing numeric ndarray path with shape `(n_samples, n_covariates)`. It also accepts pandas `DataFrame`/`Series` inputs and DataFrame-like objects with `to_numpy()`: numeric columns are kept as covariates, and non-numeric columns are dummy-coded with the first observed level dropped as the reference. A `formula` keyword can be used when `patsy` is installed:
+| Parameter | Applies to | Description |
+| --- | --- | --- |
+| `values` | `combat`, `combat_frame` | Samples x features data. Lists, tuples, NumPy arrays, pandas `DataFrame`, and SciPy sparse matrices are accepted by `combat`; sparse matrices are densified. `combat_frame` requires a pandas `DataFrame`. |
+| `adata` | `combat_anndata` | AnnData-like object read from `adata.X` or `adata.layers[layer]`; it is not mutated. |
+| `batch` | all | One-dimensional labels of length `n_samples`. Strings, negative integers, categories, and strided arrays are accepted. `combat_anndata` also accepts an `obs` column name. |
+| `mod` | all | Optional sample covariates with `n_samples` rows. Numeric columns are used directly; non-numeric DataFrame-like columns are dummy-coded with the first observed level dropped. |
+| `formula` | all | Optional patsy formula for constructing `mod`; requires optional `patsy` support and `mod` data. |
+| `par_prior` | all | `True` uses parametric empirical Bayes; `False` uses non-parametric empirical Bayes. |
+| `mean_only` | all | `True` adjusts batch location only. Singleton batches and degenerate feature cases can also force effective mean-only behavior. |
+| `ref_batch` | all | Optional reference batch using the original batch label. Reference-batch rows are returned unchanged. |
+| `layer` | `combat_anndata` | Optional AnnData layer name. `None` reads `adata.X`. |
 
-```python
-result = combat(values, batch, mod=metadata, formula="~ age + C(treatment)")
-```
+### Returns
 
-The Rust core still receives a numeric covariate matrix. Formula support is optional and does not make pandas or patsy required runtime dependencies for the ndarray path.
-
-Pandas `DataFrame` input is supported through either `combat_frame(...)` or `combat(...)`. The returned result keeps the existing dictionary shape, and `result["adjusted"]` is a `DataFrame` with the original index and columns:
+All entry points return a dictionary with `adjusted`, `n_samples`,
+`n_features`, and `report`. `combat` returns a NumPy array for array-like input
+and preserves pandas labels when `values` is a `DataFrame`. `combat_frame`
+always returns `adjusted` as a `DataFrame`. `combat_anndata` returns a
+`DataFrame` when pandas and AnnData labels are available; otherwise it returns a
+NumPy array.
 
 ```python
 from combaters import combat_frame
@@ -39,12 +69,6 @@ result = combat_frame(values_df, batch_series)
 adjusted_df = result["adjusted"]
 ```
 
-Install `combaters[ecosystem]` to pull in the optional pandas and SciPy helpers.
-
-SciPy sparse matrices are accepted by `combat(...)` and are explicitly densified to a new C-contiguous `float64` NumPy array before the Rust core runs. This makes the sparse-to-dense copy intentional and predictable, but it can require substantial memory for large matrices.
-
-AnnData-like objects can use the duck-typed helper without mutating the object:
-
 ```python
 from combaters import combat_anndata
 
@@ -52,11 +76,20 @@ result = combat_anndata(adata, "batch", layer=None)
 adjusted = result["adjusted"]
 ```
 
-`combat_anndata` reads `adata.X` by default, or `adata.layers[layer]` when a layer is supplied. A string `batch` is read from `adata.obs[batch]`.
+A `formula` keyword can be used when `patsy` is installed:
 
-The current implementation covers dense ComBat with parametric (`par_prior=True`) and non-parametric (`par_prior=False`) empirical Bayes, `mean_only` true or false, optional `ref_batch` by original batch label, optional `mod`, and NA-aware fitting for missing `values`. If any batch has a single sample, ComBat automatically uses effective mean-only adjustment. With `ref_batch`, reference-batch rows are returned unchanged. Features must still have enough observed values to fit the design and, when scale adjustment is enabled, at least two observed values per batch and feature. `prior.plots` and `BPPARAM` are not exposed.
+```python
+result = combat(values, batch, mod=metadata, formula="~ age + C(treatment)")
+```
 
-Degenerate feature handling is user-facing and reported. Features with zero variance inside any multi-sample batch are treated as unadjustable, copied back unchanged, and listed by zero-based column index in `result["report"]["zero_variance_features"]`. If every feature is unadjustable, `adjusted` is the original matrix and no hard failure is raised. If exactly one feature remains adjustable, empirical Bayes prior fitting is skipped and that feature uses unshrunken mean-only location adjustment; `result["report"]["effective_mean_only"]` is `True`.
+Install `combaters[ecosystem]` to pull in the optional pandas and SciPy helpers.
+
+Missing values in `values` are ignored during fitting and preserved in
+`adjusted`; infinite values are rejected. Features with zero variance inside any
+multi-sample batch are copied unchanged and reported in
+`result["report"]["zero_variance_features"]`. `prior.plots` and `BPPARAM` are
+not exposed; plotting is not implemented, and parallel execution is automatic
+inside the Rust core.
 
 ## Parallel Execution
 
@@ -69,3 +102,36 @@ The parallel loops write fixed output indices for feature selection, projection,
 - `crates/combaters-core`: pure Rust ComBat core
 - `src/lib.rs`: thin PyO3 binding layer
 - `combaters/`: Python package wrapper
+
+## Citation
+
+If you use `combaters`, cite the original ComBat method and the Bioconductor
+`sva` package that provides the reference `sva::ComBat` implementation:
+
+```bibtex
+@article{johnson2007combat,
+  title = {Adjusting batch effects in microarray expression data using empirical Bayes methods},
+  author = {Johnson, W. Evan and Li, Cheng and Rabinovic, Ariel},
+  journal = {Biostatistics},
+  volume = {8},
+  number = {1},
+  pages = {118--127},
+  year = {2007},
+  doi = {10.1093/biostatistics/kxj037}
+}
+
+@article{leek2012sva,
+  title = {The sva package for removing batch effects and other unwanted variation in high-throughput experiments},
+  author = {Leek, Jeffrey T. and Johnson, W. Evan and Parker, Hilary S. and Jaffe, Andrew E. and Storey, John D.},
+  journal = {Bioinformatics},
+  volume = {28},
+  number = {6},
+  pages = {882--883},
+  year = {2012},
+  doi = {10.1093/bioinformatics/bts034}
+}
+```
+
+- ComBat method: <https://doi.org/10.1093/biostatistics/kxj037>
+- `sva` package: <https://doi.org/10.1093/bioinformatics/bts034>
+- Bioconductor `sva`: <https://bioconductor.org/packages/release/bioc/html/sva.html>
