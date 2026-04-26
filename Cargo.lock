@@ -25,7 +25,7 @@ checksum = "c8efb64bd706a16a1bdde310ae86b351e4d21550d98d056f22f8a7f7a2183fec"
 
 [[package]]
 name = "combaters"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "combaters-core",
  "numpy",
@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "combaters-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "approx",
  "csv",

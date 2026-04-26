@@ -1,6 +1,6 @@
 [package]
 name = "combaters"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 description = "PyO3 bindings for the Rust ComBat batch-effect correction core"
 license = "MIT"
@@ -14,6 +14,6 @@ name = "_combaters"
 crate-type = ["cdylib"]
 
 [dependencies]
-combaters-core = { version = "0.1.0", path = "crates/combaters-core" }
+combaters-core = { version = "1.0.0", path = "crates/combaters-core" }
 numpy = "0.28.0"
 pyo3 = { version = "0.28.3", features = ["abi3-py310"] }
